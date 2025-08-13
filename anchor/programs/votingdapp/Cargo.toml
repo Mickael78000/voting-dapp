@@ -19,8 +19,12 @@ anchor-debug = []
 custom-panic = []
 custom-heap = []
 
+
 [dependencies]
-anchor-lang = "0.30.1"
+anchor-lang = "0.31.1"
+
+[dependencies.proc-macro2]
+version = "=1.0.97"
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", priority = 2 }

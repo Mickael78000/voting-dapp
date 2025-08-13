@@ -2,7 +2,7 @@
 
 use anchor_lang::prelude::*;
 
-declare_id!("D8hDDU3nprHsJ9kzfgEu8AzyxoyvBopUwPDJhTHvt4iS");
+declare_id!("CuiXNjaJ6qWo39iSmRb9LTswKpo2hgYXvcygeCs3gxAz");
 
 #[program]
 pub mod votingdapp {
@@ -127,7 +127,7 @@ pub struct Candidate {
 #[derive(InitSpace)]
 pub struct Poll {
     pub poll_id: u64,
-    #[max_len(280)]
+    #[max_len(200)]
     pub poll_description: String,
     pub poll_start: u64,
     pub poll_end: u64,
