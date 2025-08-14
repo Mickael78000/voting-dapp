@@ -1,96 +1,168 @@
-import * as anchor from '@coral-xyz/anchor'
-import { BankrunProvider, startAnchor } from "anchor-bankrun";
-import { Program } from '@coral-xyz/anchor'
-import { PublicKey} from '@solana/web3.js'
-import { Votingdapp } from '../target/types/votingdapp'
+import * as anchor from "@coral-xyz/anchor";
+import { Program, AnchorError } from "@coral-xyz/anchor";
+import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { Votingdapp } from "../target/types/votingdapp";
+import jest from "jest";
 
-const IDL = require('../target/idl/votingdapp.json');
+describe("votingdapp", () => {
+  // Configure the client to use the local cluster.
+  const provider = anchor.AnchorProvider.env();
+  anchor.setProvider(provider);
+  const program = anchor.workspace.Votingdapp as Program<Votingdapp>;
 
-const votingAddress = new PublicKey("D8hDDU3nprHsJ9kzfgEu8AzyxoyvBopUwPDJhTHvt4iS");
+  // Test keys
+  const pollId = new anchor.BN(42);
+  let pollPda: PublicKey;
+  let pollBump: number;
 
-describe('Votingdapp', () => {
-
-  let context ;
-  let provider;
-  anchor.setProvider(anchor.AnchorProvider.env());
-  let votingProgram = anchor.workspace.Votingdapp as Program<Votingdapp>;
-
-  beforeAll(async() => {
-    context = await startAnchor("", [{name: "votingdapp", programId: votingAddress}], []);
-    provider = new BankrunProvider(context);
-    votingProgram = new Program<Votingdapp>(
-      IDL,
-      provider,
+  it("Happy: initialize poll", async () => {
+    const [pda, bump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("poll"), pollId.toArrayLike(Buffer, "le", 8)],
+      program.programId
     );
+    pollPda = pda;
+    pollBump = bump;
 
-    })
-  
-  it('Initialize Poll', async()  => {
-      await votingProgram.methods.initializePoll(
-      new anchor.BN(1),
-      "What is your favorite type of peanut butter?",
-      new anchor.BN(0),
-      new anchor.BN(1842575348),
-    ).rpc();
+    await program.methods
+      .initializePoll(pollId, "Test poll?", new anchor.BN(0), new anchor.BN(999))
+      .accounts({
+        signer: provider.wallet.publicKey,
+        poll: pollPda,
+        systemProgram: SystemProgram.programId,
+      } as any)
+      .rpc();
 
-    const [pollAddress] = PublicKey.findProgramAddressSync(
-      [new anchor.BN(1).toArrayLike(Buffer, 'le', 8)],
-      votingAddress,
+    const poll = await program.account.poll.fetch(pollPda);
+    expect(poll.pollId.toNumber()).toBe(42);
+    expect(poll.pollDescription).toBe("Test poll?");
+    expect(poll.candidateCount.toNumber()).toBe(0);
+  });
+
+  it("Happy: initialize candidates", async () => {
+    for (const name of ["Alice", "Bob"]) {
+      const nameBuf = Buffer.from(name);
+      const [candPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from("cand"), pollId.toArrayLike(Buffer, "le", 8), nameBuf],
+        program.programId
+      );
+
+      await program.methods
+        .initializeCandidate(name, pollId)
+        .accounts({
+          signer: provider.wallet.publicKey,
+          poll: pollPda,
+          candidate: candPda,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .rpc();
+
+      const cand = await program.account.candidate.fetch(candPda);
+      expect(Buffer.from(cand.name).toString().replace(/\0/g, "")).toBe(name);
+      expect(cand.plusVotes.toNumber()).toBe(0);
+      expect(cand.minusVotes.toNumber()).toBe(0);
+    }
+  });
+
+  it("Happy: single positive vote", async () => {
+    // build allocations
+    const alloc = [{ candidate: provider.wallet.publicKey, votes: 1 }];
+    // but our candidate is Alice, so replace with real PDA
+    const name = "Alice";
+    const nameBuf = Buffer.from(name);
+    const [alicePda] = PublicKey.findProgramAddressSync(
+      [Buffer.from("cand"), pollId.toArrayLike(Buffer, "le", 8), nameBuf],
+      program.programId
     );
+    alloc[0].candidate = alicePda;
 
-    const poll = await votingProgram.account.poll.fetch(pollAddress);
+    await program.methods
+      .vote(alloc, [])
+      .accounts({
+        signer: provider.wallet.publicKey,
+        poll: pollPda,
+        voterRecord: provider.wallet.publicKey, // PDA derived by program
+        systemProgram: SystemProgram.programId,
+      } as any)
+      .remainingAccounts([{ pubkey: alicePda, isWritable: true, isSigner: false }])
+      .rpc();
 
-    console.log(poll);
+    const alice = await program.account.candidate.fetch(alicePda);
+    expect(alice.plusVotes.toNumber()).toBe(1);
+  });
 
-    expect(poll.pollId.toNumber()).toBe(1);
-    expect(poll.pollDescription).toBe("What is your favorite type of peanut butter?");
-    expect(poll.pollStart.toNumber()).toBeLessThan(poll.pollEnd.toNumber());
+  it("Unhappy: double voting forbidden", async () => {
+    const alloc = [{ candidate: pollPda, votes: 1 }];
+    // attempt to vote again with same voter
+    try {
+  await program.methods
+    .vote(alloc, [])
+    .accounts({
+      signer: provider.wallet.publicKey,
+      poll: pollPda,
+      voterRecord: provider.wallet.publicKey,
+      systemProgram: SystemProgram.programId,
+    } as any)
+    .remainingAccounts([{ pubkey: pollPda, isWritable: true, isSigner: false }])
+    .rpc();
+    } catch (err) {
+    const anchorErr = err as AnchorError;
+    expect(anchorErr.error.errorCode).toBe("AlreadyVoted");
+  }
+  });
 
-    });
-
-  it("initialize candidate", async() => {
-    await votingProgram.methods.initializeCandidate(
-      "Creamy",
-      new anchor.BN(1),
-    ).rpc();
-    await votingProgram.methods.initializeCandidate(
-      "Crunchy",
-      new anchor.BN(1),
-    ).rpc();
-
-    const [crunchyAddress] = PublicKey.findProgramAddressSync(
-      [new anchor.BN(1).toArrayLike(Buffer, 'le', 8), Buffer.from("Crunchy")],
-      votingAddress,
+  it("Unhappy: too many plus votes", async () => {
+    // voter2 for fresh ballot
+    const voter2 = anchor.web3.Keypair.generate();
+    const airdropSig = await provider.connection.requestAirdrop(
+      voter2.publicKey,
+      5 * anchor.web3.LAMPORTS_PER_SOL
     );
+    await provider.connection.confirmTransaction(airdropSig);
 
-    const crunchyCandidate = await votingProgram.account.candidate.fetch(crunchyAddress);
-    console.log(crunchyCandidate);
-    expect(crunchyCandidate.candidateVotes.toNumber()).toEqual(0);
+    // build allocations exceeding plus limit (poll.plusVotesAllowed default zero)
+    const alloc = [{ candidate: pollPda, votes: 10 }];
+    try {
+     await expect(
+      program.methods
+      .vote(alloc, [])
+      .accounts({
+      signer: voter2.publicKey,
+      poll: pollPda,
+      voterRecord: voter2.publicKey,
+      systemProgram: SystemProgram.programId,
+       } as any)
+      .remainingAccounts([{ pubkey: pollPda, isWritable: true, isSigner: false }])
+      .signers([voter2])
+     .rpc()
+    ).rejects.toThrow("TooManyPlus should have failed");
+    } catch (err) {
+      console.error(err);
+    }
+  });
 
-    const [creamyAddress] = PublicKey.findProgramAddressSync(
-      [new anchor.BN(1).toArrayLike(Buffer, 'le', 8), Buffer.from("Creamy")],
-      votingAddress,
-    );
+  it("Unhappy: minus requires two plus", async () => {
+    const voter3 = anchor.web3.Keypair.generate();
+    await provider.connection.requestAirdrop(voter3.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
 
-    const creamyCandidate = await votingProgram.account.candidate.fetch(creamyAddress);
-    console.log(creamyCandidate);
-    expect(creamyCandidate.candidateVotes.toNumber()).toEqual(0);
-    });
-
-  it("initialize vote", async() => {
-    await votingProgram.methods
-    .vote("Creamy",
-      new anchor.BN(1))
-    .rpc()
-    
-    const [creamyAddress] = PublicKey.findProgramAddressSync(
-      [new anchor.BN(1).toArrayLike(Buffer, 'le', 8), Buffer.from("Creamy")],
-      votingAddress,
-    );
-    
-    const creamyCandidate = await votingProgram.account.candidate.fetch(creamyAddress);
-    console.log(creamyCandidate);
-    expect(creamyCandidate.candidateVotes.toNumber()).toEqual(1);
-
-    });
+    const plusAlloc: { candidate: PublicKey; votes: number }[] = [];; // zero plus
+    const minusAlloc = [{ candidate: pollPda, votes: 1 }];
+    try {
+      await expect(
+       program.methods
+        .vote(plusAlloc, minusAlloc)
+        .accounts({
+          signer: voter3.publicKey,
+          poll: pollPda,
+          voterRecord: voter3.publicKey,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .remainingAccounts([{ pubkey: pollPda, isWritable: true, isSigner: false }])
+        .signers([voter3])
+        .rpc()
+      ).rejects.toThrow("MinusRequiresTwoPlus should have failed");
+    } catch (err) {
+      const anchorErr = err as AnchorError;
+      expect(anchorErr.error.errorCode).toBe("MinusRequiresTwoPlus");
+    }
+  });
 });
