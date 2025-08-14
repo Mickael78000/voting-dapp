@@ -5,6 +5,8 @@
 /anchor/target/release/
 /anchor/target/.rustc_info.json
 /anchor/target/sbf-solana-solana
+/anchor/target/sbpf-solana-solana
+
 /test-ledger/
 /node_modules
 /anchor/tests/fixtures
