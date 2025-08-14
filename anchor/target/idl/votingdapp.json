@@ -31,6 +31,15 @@
           "pda": {
             "seeds": [
               {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  108
+                ]
+              },
+              {
                 "kind": "arg",
                 "path": "poll_id"
               }
@@ -42,6 +51,15 @@
           "writable": true,
           "pda": {
             "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  110,
+                  100
+                ]
+              },
               {
                 "kind": "arg",
                 "path": "poll_id"
@@ -71,6 +89,12 @@
     },
     {
       "name": "initialize_poll",
+      "docs": [
+        "Initialize a new poll with D21 parameters:",
+        "- winners: number of seats",
+        "- plus_votes_allowed = ⌊2W - (W-2)·φ⌋",
+        "- minus_votes_allowed = ⌊plus_votes_allowed / 3⌋"
+      ],
       "discriminator": [
         193,
         22,
@@ -92,6 +116,15 @@
           "writable": true,
           "pda": {
             "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  108
+                ]
+              },
               {
                 "kind": "arg",
                 "path": "poll_id"
@@ -125,6 +158,10 @@
     },
     {
       "name": "vote",
+      "docs": [
+        "Redesigned vote instruction to accept dynamic lists of candidates,",
+        "and multiple plus/minus allocations."
+      ],
       "discriminator": [
         227,
         110,
@@ -138,6 +175,7 @@
       "accounts": [
         {
           "name": "signer",
+          "writable": true,
           "signer": true
         },
         {
@@ -145,6 +183,15 @@
           "pda": {
             "seeds": [
               {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  108
+                ]
+              },
+              {
                 "kind": "arg",
                 "path": "poll_id"
               }
@@ -152,30 +199,56 @@
           }
         },
         {
-          "name": "candidate",
+          "name": "voter_record",
           "writable": true,
           "pda": {
             "seeds": [
               {
-                "kind": "arg",
-                "path": "poll_id"
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "signer"
               },
               {
                 "kind": "arg",
-                "path": "candidate_name"
+                "path": "poll_id"
               }
             ]
           }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "_candidate_name",
-          "type": "string"
+          "name": "plus_allocations",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "VoteAllocation"
+              }
+            }
+          }
         },
         {
-          "name": "_poll_id",
-          "type": "u64"
+          "name": "minus_allocations",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "VoteAllocation"
+              }
+            }
+          }
         }
       ]
     }
@@ -206,6 +279,51 @@
         153,
         111
       ]
+    },
+    {
+      "name": "VoterRecord",
+      "discriminator": [
+        178,
+        96,
+        138,
+        116,
+        143,
+        202,
+        115,
+        33
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "AlreadyVoted",
+      "msg": "Voter has already cast a ballot"
+    },
+    {
+      "code": 6001,
+      "name": "TooManyPlus",
+      "msg": "Allocated more plus votes than allowed"
+    },
+    {
+      "code": 6002,
+      "name": "TooManyMinus",
+      "msg": "Allocated more minus votes than allowed"
+    },
+    {
+      "code": 6003,
+      "name": "InvalidTotal",
+      "msg": "Total votes exceed candidate count"
+    },
+    {
+      "code": 6004,
+      "name": "MinusRequiresTwoPlus",
+      "msg": "Minus vote requires at least two plus votes"
+    },
+    {
+      "code": 6005,
+      "name": "Overflow",
+      "msg": "Arithmetic overflow"
     }
   ],
   "types": [
@@ -215,11 +333,20 @@
         "kind": "struct",
         "fields": [
           {
-            "name": "candidate_name",
-            "type": "string"
+            "name": "name",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
-            "name": "candidate_votes",
+            "name": "plus_votes",
+            "type": "u64"
+          },
+          {
+            "name": "minus_votes",
             "type": "u64"
           }
         ]
@@ -247,8 +374,56 @@
             "type": "u64"
           },
           {
-            "name": "candidate_amount",
+            "name": "candidate_count",
             "type": "u64"
+          },
+          {
+            "name": "winners",
+            "type": "u8"
+          },
+          {
+            "name": "plus_votes_allowed",
+            "type": "u8"
+          },
+          {
+            "name": "minus_votes_allowed",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoteAllocation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "candidate",
+            "type": "pubkey"
+          },
+          {
+            "name": "votes",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoterRecord",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "has_voted",
+            "type": "bool"
+          },
+          {
+            "name": "plus_used",
+            "type": "u8"
+          },
+          {
+            "name": "minus_used",
+            "type": "u8"
           }
         ]
       }

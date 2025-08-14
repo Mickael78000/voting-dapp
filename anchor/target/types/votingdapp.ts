@@ -37,6 +37,15 @@ export type Votingdapp = {
           "pda": {
             "seeds": [
               {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  108
+                ]
+              },
+              {
                 "kind": "arg",
                 "path": "pollId"
               }
@@ -48,6 +57,15 @@ export type Votingdapp = {
           "writable": true,
           "pda": {
             "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  97,
+                  110,
+                  100
+                ]
+              },
               {
                 "kind": "arg",
                 "path": "pollId"
@@ -77,6 +95,12 @@ export type Votingdapp = {
     },
     {
       "name": "initializePoll",
+      "docs": [
+        "Initialize a new poll with D21 parameters:",
+        "- winners: number of seats",
+        "- plus_votes_allowed = ⌊2W - (W-2)·φ⌋",
+        "- minus_votes_allowed = ⌊plus_votes_allowed / 3⌋"
+      ],
       "discriminator": [
         193,
         22,
@@ -98,6 +122,15 @@ export type Votingdapp = {
           "writable": true,
           "pda": {
             "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  108
+                ]
+              },
               {
                 "kind": "arg",
                 "path": "pollId"
@@ -131,6 +164,10 @@ export type Votingdapp = {
     },
     {
       "name": "vote",
+      "docs": [
+        "Redesigned vote instruction to accept dynamic lists of candidates,",
+        "and multiple plus/minus allocations."
+      ],
       "discriminator": [
         227,
         110,
@@ -144,6 +181,7 @@ export type Votingdapp = {
       "accounts": [
         {
           "name": "signer",
+          "writable": true,
           "signer": true
         },
         {
@@ -151,6 +189,15 @@ export type Votingdapp = {
           "pda": {
             "seeds": [
               {
+                "kind": "const",
+                "value": [
+                  112,
+                  111,
+                  108,
+                  108
+                ]
+              },
+              {
                 "kind": "arg",
                 "path": "pollId"
               }
@@ -158,30 +205,56 @@ export type Votingdapp = {
           }
         },
         {
-          "name": "candidate",
+          "name": "voterRecord",
           "writable": true,
           "pda": {
             "seeds": [
               {
-                "kind": "arg",
-                "path": "pollId"
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  116,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "signer"
               },
               {
                 "kind": "arg",
-                "path": "candidateName"
+                "path": "pollId"
               }
             ]
           }
+        },
+        {
+          "name": "systemProgram",
+          "address": "11111111111111111111111111111111"
         }
       ],
       "args": [
         {
-          "name": "candidateName",
-          "type": "string"
+          "name": "plusAllocations",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "voteAllocation"
+              }
+            }
+          }
         },
         {
-          "name": "pollId",
-          "type": "u64"
+          "name": "minusAllocations",
+          "type": {
+            "vec": {
+              "defined": {
+                "name": "voteAllocation"
+              }
+            }
+          }
         }
       ]
     }
@@ -212,6 +285,51 @@ export type Votingdapp = {
         153,
         111
       ]
+    },
+    {
+      "name": "voterRecord",
+      "discriminator": [
+        178,
+        96,
+        138,
+        116,
+        143,
+        202,
+        115,
+        33
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "alreadyVoted",
+      "msg": "Voter has already cast a ballot"
+    },
+    {
+      "code": 6001,
+      "name": "tooManyPlus",
+      "msg": "Allocated more plus votes than allowed"
+    },
+    {
+      "code": 6002,
+      "name": "tooManyMinus",
+      "msg": "Allocated more minus votes than allowed"
+    },
+    {
+      "code": 6003,
+      "name": "invalidTotal",
+      "msg": "Total votes exceed candidate count"
+    },
+    {
+      "code": 6004,
+      "name": "minusRequiresTwoPlus",
+      "msg": "Minus vote requires at least two plus votes"
+    },
+    {
+      "code": 6005,
+      "name": "overflow",
+      "msg": "Arithmetic overflow"
     }
   ],
   "types": [
@@ -221,11 +339,20 @@ export type Votingdapp = {
         "kind": "struct",
         "fields": [
           {
-            "name": "candidateName",
-            "type": "string"
+            "name": "name",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
           },
           {
-            "name": "candidateVotes",
+            "name": "plusVotes",
+            "type": "u64"
+          },
+          {
+            "name": "minusVotes",
             "type": "u64"
           }
         ]
@@ -253,8 +380,56 @@ export type Votingdapp = {
             "type": "u64"
           },
           {
-            "name": "candidateAmount",
+            "name": "candidateCount",
             "type": "u64"
+          },
+          {
+            "name": "winners",
+            "type": "u8"
+          },
+          {
+            "name": "plusVotesAllowed",
+            "type": "u8"
+          },
+          {
+            "name": "minusVotesAllowed",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "voteAllocation",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "candidate",
+            "type": "pubkey"
+          },
+          {
+            "name": "votes",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "voterRecord",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "hasVoted",
+            "type": "bool"
+          },
+          {
+            "name": "plusUsed",
+            "type": "u8"
+          },
+          {
+            "name": "minusUsed",
+            "type": "u8"
           }
         ]
       }

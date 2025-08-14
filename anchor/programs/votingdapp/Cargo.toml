@@ -21,10 +21,11 @@ custom-heap = []
 
 
 [dependencies]
-anchor-lang = "0.31.1"
+anchor-lang = { version = "0.31.1", features = ["init-if-needed"] }
+bytemuck = { version = "1.0", features = ["derive"] }
 
 [dependencies.proc-macro2]
-version = "=1.0.97"
+version = "=1.0.95"
 
 [lints.rust]
 unexpected_cfgs = { level = "allow", priority = 2 }
