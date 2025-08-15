@@ -2,6 +2,7 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program, AnchorError } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { Votingdapp } from "../target/types/votingdapp";
+import  VotingdappIDL  from '../target/idl/votingdapp.json';
 import { expect, should } from "chai";
 
 function getPollIdBytes(id: number): Buffer {
@@ -12,13 +13,11 @@ describe("votingdapp", () => {
   let plusAlloc: { candidate: PublicKey; votes: number }[] = [];
   let minusAlloc: { candidate: PublicKey; votes: number }[] = [];
 
-  
-
-
-  // Configure the client to use the local cluster.
+ 
+  const programId = new PublicKey("AtRF47M4kn2UeJKtnjzTMAkyRAPkJm2AkoVmk7FbrHYg");
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program = anchor.workspace.Votingdapp as Program<Votingdapp>;
+  const program: anchor.Program<Votingdapp> = new anchor.Program(VotingdappIDL, provider);
 
   // Test keys
   const pollId = 42;

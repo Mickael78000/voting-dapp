@@ -1,12 +1,5 @@
-[toolchain]
-anchor_version = "0.31.1"
-
-[features]
-resolution = true
-skip-lint = false
-
 [provider]
-cluster = "Devnet"
+cluster = "devnet"
 wallet = "~/.config/solana/id.json"
 
 [registry]
@@ -22,3 +15,15 @@ skip = true
 bind_address = "127.0.0.1"
 ledger = ".anchor/test-ledger"
 rpc_port = 8899
+
+[toolchain]
+anchor_version = "0.31.1"
+solana_version = "2.2.12"
+
+[features]
+seeds = false
+skip-lint = false
+
+[programs.localnet]
+voting-dapp = "AtRF47M4kn2UeJKtnjzTMAkyRAPkJm2AkoVmk7FbrHYg"
+
