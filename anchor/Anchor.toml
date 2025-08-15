@@ -12,15 +12,13 @@ wallet = "~/.config/solana/id.json"
 [registry]
 url = "https://api.apr.dev"
 
-[scripts]
-test = "../node_modules/.bin/jest --preset ts-jest"
-
 [test]
 startup_wait = 5000
 shutdown_wait = 2000
 upgradeable = false
 
 [test.validator]
+skip = true
 bind_address = "127.0.0.1"
 ledger = ".anchor/test-ledger"
 rpc_port = 8899

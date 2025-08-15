@@ -113,7 +113,7 @@ export type Votingdapp = {
         },
         {
           "name": "pollId",
-          "type": "u64"
+          "type": "u32"
         }
       ]
     },
@@ -402,7 +402,7 @@ export type Votingdapp = {
         "fields": [
           {
             "name": "pollId",
-            "type": "u64"
+            "type": "u32"
           },
           {
             "name": "pollDescription",

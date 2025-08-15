@@ -20,7 +20,7 @@ pub mod votingdapp {
         poll_end: u64,
     ) -> Result<()> {
         let poll = &mut ctx.accounts.poll;
-        poll.poll_id = poll_id;
+        poll.poll_id = poll_id as u32;
         poll.poll_description = poll_description;
         poll.poll_start = poll_start;
         poll.poll_end = poll_end;
@@ -31,7 +31,7 @@ pub mod votingdapp {
     pub fn initialize_candidate(
         ctx: Context<InitializeCandidate>,
         candidate_name: String,
-        _poll_id: u64,
+        _poll_id: u32,
     ) -> Result<()> {
         let candidate = &mut ctx.accounts.candidate;
         let poll = &mut ctx.accounts.poll;
@@ -216,8 +216,8 @@ pub struct Candidate {
 #[account]
 #[derive(InitSpace)]
 pub struct Poll {
-    pub poll_id: u64,
-    #[max_len(200)]
+    pub poll_id: u32,
+    #[max_len(100)]
     pub poll_description: String,
     pub poll_start: u64,
     pub poll_end: u64,

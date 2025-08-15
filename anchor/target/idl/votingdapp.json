@@ -107,7 +107,7 @@
         },
         {
           "name": "_poll_id",
-          "type": "u64"
+          "type": "u32"
         }
       ]
     },
@@ -396,7 +396,7 @@
         "fields": [
           {
             "name": "poll_id",
-            "type": "u64"
+            "type": "u32"
           },
           {
             "name": "poll_description",

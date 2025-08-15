@@ -2,11 +2,18 @@ import * as anchor from "@coral-xyz/anchor";
 import { Program, AnchorError } from "@coral-xyz/anchor";
 import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { Votingdapp } from "../target/types/votingdapp";
-import jest from "jest";
+import { expect, should } from "chai";
+
+function getPollIdBytes(id: number): Buffer {
+  return Buffer.from([id, 0, 0, 0]); // u32 little-endian
+}
 
 describe("votingdapp", () => {
   let plusAlloc: { candidate: PublicKey; votes: number }[] = [];
   let minusAlloc: { candidate: PublicKey; votes: number }[] = [];
+
+  
+
 
   // Configure the client to use the local cluster.
   const provider = anchor.AnchorProvider.env();
@@ -14,20 +21,21 @@ describe("votingdapp", () => {
   const program = anchor.workspace.Votingdapp as Program<Votingdapp>;
 
   // Test keys
-  const pollId = new anchor.BN(42);
+  const pollId = 42;
   let pollPda: PublicKey;
   let pollBump: number;
 
   it("Happy: initialize poll", async () => {
+    await new Promise(resolve => setTimeout(resolve, 500));
     const [pda, bump] = PublicKey.findProgramAddressSync(
-      [Buffer.from("poll"), pollId.toArrayLike(Buffer, "le", 8)],
+      [Buffer.from("poll"),getPollIdBytes(pollId)],
       program.programId
     );
     pollPda = pda;
     pollBump = bump;
 
     await program.methods
-      .initializePoll(pollId, "Test poll?", new anchor.BN(0), new anchor.BN(999))
+      .initializePoll(new anchor.BN(pollId), "Test poll?", new anchor.BN(0), new anchor.BN(999))
       .accounts({
         signer: provider.wallet.publicKey,
         poll: pollPda,
@@ -36,16 +44,19 @@ describe("votingdapp", () => {
       .rpc();
 
     const poll = await program.account.poll.fetch(pollPda);
-    expect(poll.pollId.toNumber()).toBe(42);
-    expect(poll.pollDescription).toBe("Test poll?");
-    expect(poll.candidateCount.toNumber()).toBe(0);
+    expect(poll.pollId).to.equal(42);
+    expect(poll.pollDescription).to.equal("Test poll?");
+    expect(poll.candidateCount.toNumber()).to.equal(0);
+    expect(poll.winners).to.equal(2);
+    expect(poll.plusVotesAllowed).to.be.greaterThan(0);
+    expect(poll.minusVotesAllowed).to.be.greaterThan(0);
   });
 
   it("Happy: initialize candidates", async () => {
     for (const name of ["Alice", "Bob"]) {
       const nameBuf = Buffer.from(name);
       const [candPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("cand"), pollId.toArrayLike(Buffer, "le", 8), nameBuf],
+        [Buffer.from("cand"), getPollIdBytes(pollId), nameBuf],
         program.programId
       );
 
@@ -59,10 +70,12 @@ describe("votingdapp", () => {
         } as any)
         .rpc();
 
+      await new Promise(resolve => setTimeout(resolve, 500));
+
       const cand = await program.account.candidate.fetch(candPda);
-      expect(Buffer.from(cand.name).toString().replace(/\0/g, "")).toBe(name);
-      expect(cand.plusVotes.toNumber()).toBe(0);
-      expect(cand.minusVotes.toNumber()).toBe(0);
+      expect(Buffer.from(cand.name).toString().replace(/\0/g, "")).to.equal(name);
+      expect(cand.plusVotes.toNumber()).to.equal(0);
+      expect(cand.minusVotes.toNumber()).to.equal(0);
     }
   });
 
@@ -73,7 +86,7 @@ describe("votingdapp", () => {
     const name = "Alice";
     const nameBuf = Buffer.from(name);
     const [alicePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("cand"), pollId.toArrayLike(Buffer, "le", 8), nameBuf],
+      [Buffer.from("cand"), getPollIdBytes(pollId), nameBuf],
       program.programId
     );
     alloc[0].candidate = alicePda;
@@ -90,7 +103,7 @@ describe("votingdapp", () => {
       .rpc();
 
     const alice = await program.account.candidate.fetch(alicePda);
-    expect(alice.plusVotes.toNumber()).toBe(1);
+    expect(alice.plusVotes.toNumber()).to.be.equal(1);
   });
 
   it("Unhappy: double voting forbidden", async () => {
@@ -109,7 +122,7 @@ describe("votingdapp", () => {
     .rpc();
     } catch (err) {
     const anchorErr = err as AnchorError;
-    expect(anchorErr.error.errorCode).toBe("AlreadyVoted");
+    expect(anchorErr.error.errorCode).to.equal("AlreadyVoted");
   }
   });
 
@@ -137,7 +150,7 @@ describe("votingdapp", () => {
       .remainingAccounts([{ pubkey: pollPda, isWritable: true, isSigner: false }])
       .signers([voter2])
      .rpc()
-    ).rejects.toThrow("TooManyPlus should have failed");
+    ).to.throw("TooManyPlus should have failed");
     } finally {
        try {
         await program.methods
@@ -178,10 +191,10 @@ describe("votingdapp", () => {
         .remainingAccounts([{ pubkey: pollPda, isWritable: true, isSigner: false }])
         .signers([voter3])
         .rpc()
-      ).rejects.toThrow("MinusRequiresTwoPlus should have failed");
+      ).to.throw("MinusRequiresTwoPlus should have failed");
     } catch (err) {
       const anchorErr = err as AnchorError;
-      expect(anchorErr.error.errorCode).toBe("MinusRequiresTwoPlus");
+      expect(anchorErr.error.errorCode).to.equal("MinusRequiresTwoPlus");
     }
   });
 });
