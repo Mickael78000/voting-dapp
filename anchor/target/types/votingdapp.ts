@@ -5,7 +5,7 @@
  * IDL can be found at `target/idl/votingdapp.json`.
  */
 export type Votingdapp = {
-  "address": "CuiXNjaJ6qWo39iSmRb9LTswKpo2hgYXvcygeCs3gxAz",
+  "address": "BruA7Pfep2rGVB2mEKVnLXPoNQh8iGMtq55PVWpAXVao",
   "metadata": {
     "name": "votingdapp",
     "version": "0.1.0",
@@ -13,6 +13,30 @@ export type Votingdapp = {
     "description": "Created with Anchor"
   },
   "instructions": [
+    {
+      "name": "closeVoterRecord",
+      "discriminator": [
+        7,
+        242,
+        20,
+        136,
+        143,
+        35,
+        242,
+        97
+      ],
+      "accounts": [
+        {
+          "name": "voterRecord",
+          "writable": true
+        },
+        {
+          "name": "signer",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
     {
       "name": "initializeCandidate",
       "discriminator": [
@@ -298,6 +322,19 @@ export type Votingdapp = {
         115,
         33
       ]
+    },
+    {
+      "name": "voterRecordData",
+      "discriminator": [
+        223,
+        199,
+        185,
+        121,
+        242,
+        115,
+        207,
+        104
+      ]
     }
   ],
   "errors": [
@@ -416,6 +453,26 @@ export type Votingdapp = {
     },
     {
       "name": "voterRecord",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "hasVoted",
+            "type": "bool"
+          },
+          {
+            "name": "plusUsed",
+            "type": "u8"
+          },
+          {
+            "name": "minusUsed",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "voterRecordData",
       "type": {
         "kind": "struct",
         "fields": [

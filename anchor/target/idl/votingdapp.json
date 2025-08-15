@@ -1,5 +1,5 @@
 {
-  "address": "CuiXNjaJ6qWo39iSmRb9LTswKpo2hgYXvcygeCs3gxAz",
+  "address": "BruA7Pfep2rGVB2mEKVnLXPoNQh8iGMtq55PVWpAXVao",
   "metadata": {
     "name": "votingdapp",
     "version": "0.1.0",
@@ -7,6 +7,30 @@
     "description": "Created with Anchor"
   },
   "instructions": [
+    {
+      "name": "close_voter_record",
+      "discriminator": [
+        7,
+        242,
+        20,
+        136,
+        143,
+        35,
+        242,
+        97
+      ],
+      "accounts": [
+        {
+          "name": "voter_record",
+          "writable": true
+        },
+        {
+          "name": "signer",
+          "signer": true
+        }
+      ],
+      "args": []
+    },
     {
       "name": "initialize_candidate",
       "discriminator": [
@@ -292,6 +316,19 @@
         115,
         33
       ]
+    },
+    {
+      "name": "VoterRecordData",
+      "discriminator": [
+        223,
+        199,
+        185,
+        121,
+        242,
+        115,
+        207,
+        104
+      ]
     }
   ],
   "errors": [
@@ -410,6 +447,26 @@
     },
     {
       "name": "VoterRecord",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "has_voted",
+            "type": "bool"
+          },
+          {
+            "name": "plus_used",
+            "type": "u8"
+          },
+          {
+            "name": "minus_used",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoterRecordData",
       "type": {
         "kind": "struct",
         "fields": [

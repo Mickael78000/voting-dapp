@@ -5,6 +5,9 @@ import { Votingdapp } from "../target/types/votingdapp";
 import jest from "jest";
 
 describe("votingdapp", () => {
+  let plusAlloc: { candidate: PublicKey; votes: number }[] = [];
+  let minusAlloc: { candidate: PublicKey; votes: number }[] = [];
+
   // Configure the client to use the local cluster.
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
@@ -135,9 +138,25 @@ describe("votingdapp", () => {
       .signers([voter2])
      .rpc()
     ).rejects.toThrow("TooManyPlus should have failed");
-    } catch (err) {
-      console.error(err);
-    }
+    } finally {
+       try {
+        await program.methods
+        .closeVoterRecord()
+        .accounts({
+          signer: voter2.publicKey,
+          voterRecord: voter2.publicKey,
+          destination: voter2.publicKey,
+        } as any)
+        .signers([voter2])
+        .rpc();
+      } catch (e) {
+    // Ignore errors in cleanup, account might not exist
+      }
+
+      // Reset allocations to defaults for next test
+      plusAlloc = [];
+      minusAlloc = [];
+  }
   });
 
   it("Unhappy: minus requires two plus", async () => {

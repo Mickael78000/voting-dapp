@@ -2,7 +2,7 @@
 
 use anchor_lang::prelude::*;
 
-declare_id!("CuiXNjaJ6qWo39iSmRb9LTswKpo2hgYXvcygeCs3gxAz");
+declare_id!("BruA7Pfep2rGVB2mEKVnLXPoNQh8iGMtq55PVWpAXVao");
 
 #[program]
 pub mod votingdapp {
@@ -109,6 +109,10 @@ pub mod votingdapp {
     
         Ok(())
     }
+    pub fn close_voter_record(_ctx: Context<CloseVoterRecord>) -> Result<()> {
+    // No specific logic needed, Anchor auto handles closing
+    Ok(())
+}
     
 }
 
@@ -121,6 +125,7 @@ pub mod votingdapp {
     winners: u8
 )]
 pub struct InitializePoll<'info> {
+    /// CHECK: This is the user signing the transaction, verified by the runtime
     #[account(mut)]
     pub signer: Signer<'info>,
     #[account(
@@ -137,6 +142,7 @@ pub struct InitializePoll<'info> {
 #[derive(Accounts)]
 #[instruction(candidate_name: String, poll_id: u32)]
 pub struct InitializeCandidate<'info> {
+    /// CHECK: This is the user signing the transaction, verified by the runtime
     #[account(mut)]
     pub signer: Signer<'info>,
     #[account(
@@ -164,6 +170,7 @@ pub struct InitializeCandidate<'info> {
     poll_id: u64
 )]
 pub struct CastBallot<'info> {
+    /// CHECK: This is the user signing the transaction, verified by the runtime
     #[account(mut)]
     pub signer: Signer<'info>,
     #[account(
@@ -187,6 +194,15 @@ pub struct CastBallot<'info> {
 pub struct VoteAllocation {
     pub candidate: Pubkey,
     pub votes: u8,
+}
+
+#[derive(Accounts)]
+pub struct CloseVoterRecord<'info> {
+    #[account(mut, close = signer)]
+    pub voter_record: Account<'info, VoterRecordData>,
+    /// CHECK: This is the user signing the transaction, verified by the runtime
+    #[account(signer)]
+    pub signer: AccountInfo<'info>,
 }
 
 #[account]
@@ -219,7 +235,12 @@ pub struct VoterRecord {
     pub minus_used: u8,
 }
 
-
+#[account]
+pub struct VoterRecordData {
+    pub has_voted: bool,
+    pub plus_used: u8,
+    pub minus_used: u8,
+}
 
 #[error_code]
 pub enum ErrorCode {
