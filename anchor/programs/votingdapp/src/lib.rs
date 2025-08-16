@@ -18,6 +18,7 @@ pub mod votingdapp {
         poll_description: String,
         poll_start: u64,
         poll_end: u64,
+        winners: u8,
     ) -> Result<()> {
         let poll = &mut ctx.accounts.poll;
         poll.poll_id = poll_id as u32;
@@ -25,6 +26,10 @@ pub mod votingdapp {
         poll.poll_start = poll_start;
         poll.poll_end = poll_end;
         poll.candidate_count = 0;
+        poll.winners = winners;
+        // D21 formula for allowed votes
+        poll.plus_votes_allowed = ((2 * winners as u16) - ((winners as u16 - 2) * 2)) as u8;
+        poll.minus_votes_allowed = poll.plus_votes_allowed / 3;
         Ok(())
     }
 
@@ -35,6 +40,13 @@ pub mod votingdapp {
     ) -> Result<()> {
         let candidate = &mut ctx.accounts.candidate;
         let poll = &mut ctx.accounts.poll;
+
+        // Log candidate name and bytes
+    msg!("Rust/Anchor: candidate_name: {:?}", candidate_name);
+    msg!("Rust/Anchor: candidate_name.as_bytes(): {:?}", candidate_name.as_bytes());
+    msg!("Rust/Anchor: poll_id.to_le_bytes(): {:?}", poll.poll_id.to_le_bytes());
+
+
         poll.candidate_count = poll
             .candidate_count
             .checked_add(1)
@@ -42,6 +54,7 @@ pub mod votingdapp {
         candidate.name = candidate_name.as_bytes().try_into().unwrap_or([0; 32]);
         candidate.plus_votes = 0;
         candidate.minus_votes = 0;
+        poll.candidate_count += 1;
         Ok(())
     }
 
@@ -75,6 +88,8 @@ pub mod votingdapp {
         if sum_minus > 0 {
             require!(sum_plus >= 2, ErrorCode::MinusRequiresTwoPlus);
         }
+
+        
     
         // Tally plus votes by scanning remaining_accounts
         for allocation in plus_allocations {

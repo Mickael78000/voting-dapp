@@ -177,6 +177,10 @@
         {
           "name": "poll_end",
           "type": "u64"
+        },
+        {
+          "name": "winners",
+          "type": "u8"
         }
       ]
     },

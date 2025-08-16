@@ -4,9 +4,12 @@ import { PublicKey, SystemProgram } from "@solana/web3.js";
 import { Votingdapp } from "../target/types/votingdapp";
 import  VotingdappIDL  from '../target/idl/votingdapp.json';
 import { expect, should } from "chai";
+import { SendTransactionError } from "@solana/web3.js";
 
 function getPollIdBytes(id: number): Buffer {
-  return Buffer.from([id, 0, 0, 0]); // u32 little-endian
+    const buf = Buffer.alloc(4);
+    buf.writeUInt32LE(id);
+    return buf;
 }
 
 describe("votingdapp", () => {
@@ -20,7 +23,7 @@ describe("votingdapp", () => {
   const program: anchor.Program<Votingdapp> = new anchor.Program(VotingdappIDL, provider);
 
   // Test keys
-  const pollId = 42;
+  const pollId = Math.floor(Math.random() * 10_000_000); // a random u32 value
   let pollPda: PublicKey;
   let pollBump: number;
 
@@ -33,17 +36,31 @@ describe("votingdapp", () => {
     pollPda = pda;
     pollBump = bump;
 
+    try {
+
     await program.methods
-      .initializePoll(new anchor.BN(pollId), "Test poll?", new anchor.BN(0), new anchor.BN(999))
+      .initializePoll(new anchor.BN(pollId), "Test poll?", new anchor.BN(0), new anchor.BN(999),2)
       .accounts({
         signer: provider.wallet.publicKey,
         poll: pollPda,
         systemProgram: SystemProgram.programId,
       } as any)
       .rpc();
+       } catch (err) {
+    // Always print logs on error
+    const logs = err?.logs ?? err?.logMessages;
+    if (logs) {
+      console.error("\n--- Transaction Failure Logs ---");
+      logs.forEach((l: string) => console.error(l));
+      console.error("--- End Logs ---\n");
+    } else if (typeof err?.toString === 'function') {
+      console.error(err.toString());
+    }
+    throw err; // Keep failing the test!
+  }
 
     const poll = await program.account.poll.fetch(pollPda);
-    expect(poll.pollId).to.equal(42);
+    expect(poll.pollId).to.equal(pollId);
     expect(poll.pollDescription).to.equal("Test poll?");
     expect(poll.candidateCount.toNumber()).to.equal(0);
     expect(poll.winners).to.equal(2);
@@ -51,15 +68,25 @@ describe("votingdapp", () => {
     expect(poll.minusVotesAllowed).to.be.greaterThan(0);
   });
 
-  it("Happy: initialize candidates", async () => {
-    for (const name of ["Alice", "Bob"]) {
-      const nameBuf = Buffer.from(name);
-      const [candPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from("cand"), getPollIdBytes(pollId), nameBuf],
-        program.programId
-      );
+ it("Happy: initialize candidates", async () => {
+  for (const name of ["Alice", "Bob"]) {
+    const nameBuf = Buffer.from(name);
+    const pollIdBytes = getPollIdBytes(pollId);
 
-      await program.methods
+    // Log seed bytes and PDA
+    [Buffer.from("cand"), pollIdBytes, nameBuf].forEach((seed, i) => {
+      console.log(`Seed ${i}: [${Array.from(seed)}] as string: "${seed.toString()}"`);
+    });
+    const [candPda, bump] = PublicKey.findProgramAddressSync(
+      [Buffer.from("cand"), pollIdBytes, nameBuf],
+      program.programId
+    );
+    console.log(`Candidate PDA for "${name}": ${candPda.toBase58()}, bump: ${bump}`);
+
+    // Send transaction
+    let txSig;
+    try {
+      txSig = await program.methods
         .initializeCandidate(name, pollId)
         .accounts({
           signer: provider.wallet.publicKey,
@@ -68,15 +95,34 @@ describe("votingdapp", () => {
           systemProgram: SystemProgram.programId,
         } as any)
         .rpc();
-
-      await new Promise(resolve => setTimeout(resolve, 500));
-
-      const cand = await program.account.candidate.fetch(candPda);
-      expect(Buffer.from(cand.name).toString().replace(/\0/g, "")).to.equal(name);
-      expect(cand.plusVotes.toNumber()).to.equal(0);
-      expect(cand.minusVotes.toNumber()).to.equal(0);
+    } catch (err) {
+      const logs = err?.logs ?? err?.logMessages;
+      if (logs) {
+        console.error("\n--- Transaction Failure Logs ---");
+        logs.forEach((l: string) => console.error(l));
+        console.error("--- End Logs ---\n");
+      } else if (typeof err?.toString === 'function') {
+        console.error(err.toString());
+      }
+      throw err; // Keep failing the test!
     }
-  });
+
+    // Confirm transaction before fetching
+    await provider.connection.confirmTransaction(txSig, "finalized");
+
+    // --- Place your logging here ---
+    console.log("Fetching candidate account", candPda.toBase58());
+    const cand = await program.account.candidate.fetch(candPda);
+    console.log("Candidate name raw bytes:", Array.from(cand.name));
+    console.log("Candidate name as string:", Buffer.from(cand.name).toString());
+
+    expect(Buffer.from(cand.name).toString().replace(/\0/g, "")).to.equal(name);
+    expect(cand.plusVotes.toNumber()).to.equal(0);
+    expect(cand.minusVotes.toNumber()).to.equal(0);
+  }
+});
+
+
 
   it("Happy: single positive vote", async () => {
     // build allocations
