@@ -212,7 +212,7 @@ it("Unhappy: too many plus votes", async () => {
   const pollIdBytes = getPollIdBytes(pollId);
   const voter2 = anchor.web3.Keypair.generate();
   await provider.connection.confirmTransaction(
-    await provider.connection.requestAirdrop(voter2.publicKey, 5 * anchor.web3.LAMPORTS_PER_SOL)
+    await provider.connection.requestAirdrop(voter2.publicKey, 0.01 * anchor.web3.LAMPORTS_PER_SOL)
   );
 
   const [alicePda] = PublicKey.findProgramAddressSync(
@@ -245,7 +245,7 @@ it("Unhappy: minus requires two plus", async () => {
   const pollIdBytes = getPollIdBytes(pollId);
   const voter3 = anchor.web3.Keypair.generate();
   await provider.connection.confirmTransaction(
-    await provider.connection.requestAirdrop(voter3.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL)
+    await provider.connection.requestAirdrop(voter3.publicKey, 0.01 * anchor.web3.LAMPORTS_PER_SOL)
   );
 
   const [alicePda] = PublicKey.findProgramAddressSync(
