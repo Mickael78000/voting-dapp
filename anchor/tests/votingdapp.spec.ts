@@ -17,7 +17,7 @@ describe("votingdapp", () => {
   let minusAlloc: { candidate: PublicKey; votes: number }[] = [];
 
  
-  const programId = new PublicKey("AtRF47M4kn2UeJKtnjzTMAkyRAPkJm2AkoVmk7FbrHYg");
+  const programId = new PublicKey("HaV1HXC62zmRYUGDo8XT4kbPY7EMfwFkMZcwjKCF7gxx");
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
   const program: anchor.Program<Votingdapp> = new anchor.Program(VotingdappIDL, provider);
@@ -119,29 +119,62 @@ describe("votingdapp", () => {
     expect(Buffer.from(cand.name).toString().replace(/\0/g, "")).to.equal(name);
     expect(cand.plusVotes.toNumber()).to.equal(0);
     expect(cand.minusVotes.toNumber()).to.equal(0);
-  }
+  };
+  const pollAfter = await program.account.poll.fetch(pollPda);
+  expect(pollAfter.candidateCount.toNumber()).to.equal(2); // two candidates added
 });
 
 
 
   it("Happy: single positive vote", async () => {
+    const pollId = 12345678; // example poll ID
+    const pollIdBytes = getPollIdBytes(pollId);
+
+    console.log("pollIdBytes length:", pollIdBytes.length); // should print 4
+    console.log("pollIdBytes as array:", Array.from(pollIdBytes)); // e.g., [78, 97, 188, 0]
+    console.log("pollIdBytes as hex:", pollIdBytes.toString('hex')); // e.g., '4e61bc00'
+
+    // Rebuild the number to verify little-endian interpretation
+    const reconstructedId = pollIdBytes.readUInt32LE(0);
+    console.log("Reconstructed pollId:", reconstructedId);
+    console.log("Poll PDA:", pollPda.toBase58()); // should print 12345678
+
+    if (pollIdBytes.length === 4 && reconstructedId === pollId) {
+      console.log("getPollIdBytes() returns a valid 4-byte little-endian Buffer");
+    } else {
+      console.error("ERROR: getPollIdBytes() does NOT return a valid 4-byte little-endian Buffer");
+    }
+
+    const [alicePda] = PublicKey.findProgramAddressSync(
+     [Buffer.from("cand"), getPollIdBytes(pollId), Buffer.from("Alice")],
+      program.programId
+    );
+    console.log("Alice PDA:", alicePda.toBase58());
+    const [voterRecordPda] = PublicKey.findProgramAddressSync(
+      [
+      Buffer.from("voter"),
+     provider.wallet.publicKey.toBuffer(),
+      getPollIdBytes(pollId),
+      ],
+      program.programId
+    );
+    console.log("Voter Record PDA:", voterRecordPda.toBase58());
+    
     // build allocations
-    const alloc = [{ candidate: provider.wallet.publicKey, votes: 1 }];
+    const alloc = [{ candidate: alicePda, votes: 1 }];
+    
     // but our candidate is Alice, so replace with real PDA
     const name = "Alice";
     const nameBuf = Buffer.from(name);
-    const [alicePda] = PublicKey.findProgramAddressSync(
-      [Buffer.from("cand"), getPollIdBytes(pollId), nameBuf],
-      program.programId
-    );
-    alloc[0].candidate = alicePda;
+    
+    alloc[0].candidate = alicePda; // replace with real PDA
 
     await program.methods
       .vote(alloc, [])
       .accounts({
         signer: provider.wallet.publicKey,
         poll: pollPda,
-        voterRecord: provider.wallet.publicKey, // PDA derived by program
+        voterRecord: voterRecordPda,
         systemProgram: SystemProgram.programId,
       } as any)
       .remainingAccounts([{ pubkey: alicePda, isWritable: true, isSigner: false }])

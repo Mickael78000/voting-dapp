@@ -2,7 +2,7 @@
 
 use anchor_lang::prelude::*;
 
-declare_id!("AtRF47M4kn2UeJKtnjzTMAkyRAPkJm2AkoVmk7FbrHYg");
+declare_id!("HaV1HXC62zmRYUGDo8XT4kbPY7EMfwFkMZcwjKCF7gxx");
 
 #[program]
 pub mod votingdapp {
@@ -20,6 +20,7 @@ pub mod votingdapp {
         poll_end: u64,
         winners: u8,
     ) -> Result<()> {
+        msg!("Hello world");
         let poll = &mut ctx.accounts.poll;
         poll.poll_id = poll_id as u32;
         poll.poll_description = poll_description;
@@ -42,19 +43,22 @@ pub mod votingdapp {
         let poll = &mut ctx.accounts.poll;
 
         // Log candidate name and bytes
-    msg!("Rust/Anchor: candidate_name: {:?}", candidate_name);
-    msg!("Rust/Anchor: candidate_name.as_bytes(): {:?}", candidate_name.as_bytes());
-    msg!("Rust/Anchor: poll_id.to_le_bytes(): {:?}", poll.poll_id.to_le_bytes());
+    // msg!("Rust/Anchor: candidate_name: {:?}", candidate_name);
+    // msg!("Rust/Anchor: candidate_name.as_bytes(): {:?}", candidate_name.as_bytes());
+    // msg!("Rust/Anchor: poll_id.to_le_bytes(): {:?}", poll.poll_id.to_le_bytes());
 
 
         poll.candidate_count = poll
             .candidate_count
             .checked_add(1)
             .ok_or(ErrorCode::Overflow)?;
-        candidate.name = candidate_name.as_bytes().try_into().unwrap_or([0; 32]);
+        let mut name_array = [0u8; 32];
+        let name_bytes = candidate_name.as_bytes();
+        let len = std::cmp::min(name_bytes.len(), 32);
+        name_array[..len].copy_from_slice(&name_bytes[..len]);
+        candidate.name = name_array;
         candidate.plus_votes = 0;
         candidate.minus_votes = 0;
-        poll.candidate_count += 1;
         Ok(())
     }
 
@@ -65,6 +69,24 @@ pub mod votingdapp {
         plus_allocations: Vec<VoteAllocation>,
         minus_allocations: Vec<VoteAllocation>,
     ) -> Result<()> {
+        msg!("Vote instruction started");
+        msg!("Number of plus allocations: {}", plus_allocations.len());
+        msg!("Number of minus allocations: {}", minus_allocations.len());
+
+        // Print all candidate Pubkeys and votes
+        for alloc in &plus_allocations {
+            msg!("Plus vote for candidate {:?}", alloc.candidate);
+            msg!("Votes: {}", alloc.votes);
+        }
+        for alloc in &minus_allocations {
+            msg!("Minus vote for candidate {:?}", alloc.candidate);
+            msg!("Votes: {}", alloc.votes);
+        }
+        
+        // Print all account keys received in remaining_accounts
+        for (i, acct) in ctx.remaining_accounts.iter().enumerate() {
+            msg!("Remaining account #{}: {:?}", i, acct.key());
+        }
         let poll = &ctx.accounts.poll;
         let voter = &mut ctx.accounts.voter_record;
 
