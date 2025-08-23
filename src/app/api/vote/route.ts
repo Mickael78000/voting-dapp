@@ -1,87 +1,276 @@
 import {
   ActionGetResponse,
-  ActionPostRequest,
   ACTIONS_CORS_HEADERS,
   createPostResponse,
 } from "@solana/actions";
-import { Connection, PublicKey, Transaction } from "@solana/web3.js";
-import { Votingdapp } from "@/../anchor/target/types/votingdapp";
-import { BN, Program } from "@coral-xyz/anchor";
+import * as anchor from "@coral-xyz/anchor";
+import { Program, BN, AnchorProvider} from "@coral-xyz/anchor";
+import {
+  PublicKey,
+  SystemProgram,
+  TransactionMessage,
+  VersionedTransaction,
+} from "@solana/web3.js";
+import VotingdappIDL from "@/../anchor/target/idl/votingdapp.json";
+import { publicKey } from "@coral-xyz/anchor/dist/cjs/utils";
+const { Transaction } = require('@coral-xyz/anchor/dist/cjs/spl_governance');
 
-const IDL = require("@/../anchor/target/idl/votingdapp.json");
+export const OPTIONS = { GET: {} };
 
-export const OPTIONS = GET;
+// Helper: 4-byte LE poll ID
+function getPollIdBytes(pollId: number): Buffer {
+  const buf = Buffer.alloc(4);
+  buf.writeUInt32LE(pollId, 0);
+  return buf;
+}
 
 export async function GET(request: Request) {
-  const actionMetdata: ActionGetResponse = {
-    icon: "https://zestfulkitchen.com/wp-content/uploads/2021/09/Peanut-butter_hero_for-web-2.jpg",
-    title: "Vote for your favorite type of peanut butter!",
-    description: "Vote between creamy and crunchy peanut butter!",
+  const connection = new anchor.web3.Connection(
+    "http://127.0.0.1:8899",
+    "confirmed"
+  );
+const publicKey = new PublicKey("HaV1HXC62zmRYUGDo8XT4kbPY7EMfwFkMZcwjKCF7gxx");
+// Minimal wallet implementation for AnchorProvider
+const wallet = {
+  publicKey,
+  signTransaction: async (tx: any) => tx,
+  signAllTransactions: async (txs: any[]) => txs,
+};
+const provider = new AnchorProvider(connection, wallet);
+const program = new Program(VotingdappIDL as any, provider);
+
+  // Fetch all polls
+  const pollsRaw = await program.account.poll.all();
+  if (pollsRaw.length === 0) {
+    const noPolls: ActionGetResponse = {
+      icon: "https://example.com/voting-icon.jpg",
+      title: "D21 Voting System",
+      description: "No active polls available at the moment.",
+      label: "Check Later",
+      links: { actions: [] },
+    };
+    return Response.json(noPolls, { headers: ACTIONS_CORS_HEADERS });
+  }
+
+  // Use first poll
+  const pollAccount = pollsRaw[0].account;
+  const pollId = pollAccount.pollId;
+  const pollPda = pollsRaw[0].publicKey;
+
+  // Fetch all candidates
+  const candidatesRaw = await program.account.candidate.all();
+  const candidates = candidatesRaw
+    .filter((c) => {
+      // Derive PDA from on-chain name & pollId seed
+      // Trim zero padding
+      const nameBytes = Buffer.from(c.account.name).slice(
+        0,
+        c.account.name.findIndex((b) => b === 0) >= 0
+          ? c.account.name.findIndex((b) => b === 0)
+          : 32
+      );
+      const seed = [
+        Buffer.from("cand"),
+        getPollIdBytes(pollId),
+        Buffer.from(nameBytes),
+      ];
+      const [derived] = PublicKey.findProgramAddressSync(
+        seed,
+        program.programId
+      );
+      return derived.equals(c.publicKey);
+    })
+    .map((c) => ({
+      publicKey: c.publicKey.toString(),
+      name: Buffer.from(c.account.name)
+        .toString()
+        .replace(/\0/g, ""),
+    }));
+
+  const response: ActionGetResponse = {
+    icon: "https://example.com/voting-icon.jpg",
+    title: `Poll ${pollId}`,
+    description: `Cast up to ${pollAccount.plusVotesAllowed} positive and ${pollAccount.minusVotesAllowed} negative votes.`,
     label: "Vote",
     links: {
       actions: [
         {
-          label: "Vote Creamy 🥜",
-          href: "/api/vote?candidate=Creamy",
-          type: "post",
-        },
-        {
-          label: "Vote Crunchy 🔨",
-          href: "/api/vote?candidate=Crunchy",
+          label: "Open Voting Interface",
+          href: `/api/vote?pollId=${pollId}`,
           type: "post",
         },
       ],
     },
   };
-  return Response.json(actionMetdata, { headers: ACTIONS_CORS_HEADERS });
+
+  // Include candidates list
+  (response as any).candidates = candidates;
+
+  return Response.json(response, { headers: ACTIONS_CORS_HEADERS });
 }
 
 export async function POST(request: Request) {
   const url = new URL(request.url);
-  const candidate = url.searchParams.get("candidate");
-
-  if (candidate != "Creamy" && candidate != "Crunchy") {
-    return new Response("Invalid candidate", {
+  const pollIdParam = url.searchParams.get("pollId");
+  if (!pollIdParam) {
+    return new Response("Missing poll ID", {
+      status: 400,
+      headers: ACTIONS_CORS_HEADERS,
+    });
+  }
+  const pollId = parseInt(pollIdParam, 10);
+  if (isNaN(pollId)) {
+        return new Response("Invalid poll ID", {
       status: 400,
       headers: ACTIONS_CORS_HEADERS,
     });
   }
 
-  const connection = new Connection("http://127.0.0.1:8899", "confirmed");
-  const program: Program<Votingdapp> = new Program(IDL, { connection });
+  const connection = new anchor.web3.Connection(
+    "http://127.0.0.1:8899",
+    "confirmed"
+  );
+  const publicKey = new PublicKey("HaV1HXC62zmRYUGDo8XT4kbPY7EMfwFkMZcwjKCF7gxx");
+  // Minimal wallet implementation for AnchorProvider
+  const wallet = {
+    publicKey,
+    signTransaction: async (tx: any) => tx,
+    signAllTransactions: async (txs: any[]) => txs,
+  };
+  const provider = new AnchorProvider(connection, wallet);
+  const program = new Program(VotingdappIDL as any, provider);
 
-  const body: ActionPostRequest = await request.json();
-  let voter;
+  // Derive poll PDA correctly
+  const [pollPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("poll"), getPollIdBytes(pollId)],
+    program.programId
+  );
+  let pollAccount;
+  try {
+    pollAccount = await program.account.poll.fetch(pollPda);
+  } catch {
+    return new Response("Poll not found", {
+      status: 404,
+      headers: ACTIONS_CORS_HEADERS,
+    });
+  }
 
+  const body = await request.json();
+  if (!body.account) {
+    return new Response("Invalid account", {
+      status: 400,
+      headers: ACTIONS_CORS_HEADERS,
+    });
+  }
+  let voter: PublicKey;
   try {
     voter = new PublicKey(body.account);
-  } catch (error) {
+  } catch {
     return new Response("Invalid account", {
       status: 400,
       headers: ACTIONS_CORS_HEADERS,
     });
   }
 
-  const instruction = await program.methods
-    .vote(candidate, new BN(1))
+  const plusAlloc: { candidate: string; votes: number }[] =
+    body.plusAllocations || [];
+  const minusAlloc: { candidate: string; votes: number }[] =
+    body.minusAllocations || [];
+
+  // Sum votes
+  const sumPlus = plusAlloc.reduce((acc, a) => acc + (a.votes || 1), 0);
+  const sumMinus = minusAlloc.reduce((acc, a) => acc + (a.votes || 1), 0);
+
+  // Enforce D21
+  if (sumPlus > pollAccount.plusVotesAllowed) {
+    return new Response(
+      `Too many positive votes (max ${pollAccount.plusVotesAllowed})`,
+      { status: 400, headers: ACTIONS_CORS_HEADERS }
+    );
+  }
+  if (sumMinus > pollAccount.minusVotesAllowed) {
+    return new Response(
+      `Too many negative votes (max ${pollAccount.minusVotesAllowed})`,
+      { status: 400, headers: ACTIONS_CORS_HEADERS }
+    );
+  }
+  if (sumPlus + sumMinus >= pollAccount.candidateCount.toNumber()) {
+    return new Response(
+      `Total votes must be less than ${pollAccount.candidateCount}`,
+      { status: 400, headers: ACTIONS_CORS_HEADERS }
+    );
+  }
+  if (sumMinus > 0 && sumPlus < 2) {
+    return new Response(
+      "At least 2 positive votes required to cast negative votes",
+      { status: 400, headers: ACTIONS_CORS_HEADERS }
+    );
+  }
+
+  // Prevent double voting
+  const [voterRecordPda] = PublicKey.findProgramAddressSync(
+    [
+      Buffer.from("voter"),
+      voter.toBuffer(),
+      getPollIdBytes(pollId),
+    ],
+    program.programId
+  );
+  try {
+    const vr = await program.account.voterRecord.fetch(voterRecordPda);
+    if (vr.hasVoted) {
+      return new Response("Voter has already cast a ballot", {
+        status: 400,
+        headers: ACTIONS_CORS_HEADERS,
+      });
+    }
+  } catch {
+    // not initialized yet
+  }
+
+  // Build unique remainingAccounts
+  const seen = new Set<string>();
+  const remainingAccounts = [];
+  for (const a of [...plusAlloc, ...minusAlloc]) {
+    if (!seen.has(a.candidate)) {
+      seen.add(a.candidate);
+      remainingAccounts.push({
+        pubkey: new PublicKey(a.candidate),
+        isWritable: true,
+        isSigner: false,
+      });
+    }
+  }
+
+  const formattedPlus = plusAlloc.map((a) => ({
+    candidate: new PublicKey(a.candidate),
+    votes: a.votes || 1,
+  }));
+  const formattedMinus = minusAlloc.map((a) => ({
+    candidate: new PublicKey(a.candidate),
+    votes: a.votes || 1,
+  }));
+
+  const ix = await program.methods
+    .vote(pollId, formattedPlus, formattedMinus)
     .accounts({
       signer: voter,
+      poll: pollPda,
+      voterRecord: voterRecordPda,
+      systemProgram: SystemProgram.programId,
     })
+    .remainingAccounts(remainingAccounts)
     .instruction();
 
-  const blockhash = await connection.getLatestBlockhash();
-
-  const transaction = new Transaction({
-    blockhash: blockhash.blockhash,
-    feePayer: voter,
-    lastValidBlockHeight: blockhash.lastValidBlockHeight,
-  }).add(instruction);
-
+  const { blockhash } = await connection.getLatestBlockhash();
+  const message = new TransactionMessage({
+    payerKey: voter,
+    recentBlockhash: blockhash,
+    instructions: [ix],
+  }).compileToLegacyMessage();
+  const tx = new Transaction(message);
   const response = await createPostResponse({
-    fields: {
-      type: "transaction",
-      transaction: transaction,
-    },
+    fields: { type: "transaction", transaction: tx },
   });
   return Response.json(response, { headers: ACTIONS_CORS_HEADERS });
 }

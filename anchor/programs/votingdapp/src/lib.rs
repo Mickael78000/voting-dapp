@@ -29,7 +29,9 @@ pub mod votingdapp {
         poll.candidate_count = 0;
         poll.winners = winners;
         // D21 formula for allowed votes
-        poll.plus_votes_allowed = ((2 * winners as u16) - ((winners as u16 - 2) * 2)) as u8;
+        let phi = 1.618_f64;
+        let raw = 2.0 * winners as f64 - (winners as f64 - 2.0) * phi;
+        poll.plus_votes_allowed = raw.floor() as u8;
         poll.minus_votes_allowed = poll.plus_votes_allowed / 3;
         Ok(())
     }

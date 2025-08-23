@@ -73,8 +73,18 @@ describe("votingdapp", () => {
     expect(poll.pollDescription).to.equal("Test poll?");
     expect(poll.candidateCount.toNumber()).to.equal(0);
     expect(poll.winners).to.equal(2);
-    expect(poll.plusVotesAllowed).to.be.greaterThan(0);
-    expect(poll.minusVotesAllowed).to.be.greaterThan(0);
+
+    // Compute expected D21 allocations in JS
+    const winners = 2;
+    const phi = 1.618;
+    const rawPlus = 2 * winners - (winners - 2) * phi;
+    const expectedPlus = Math.floor(rawPlus);
+    const expectedMinus = Math.floor(expectedPlus / 3);
+
+    // Assert exact on-chain values match D21 formula
+    expect(poll.plusVotesAllowed).to.equal(expectedPlus);
+    expect(poll.minusVotesAllowed).to.equal(expectedMinus);
+
   });
 
   it("Happy: initialize candidates", async () => {

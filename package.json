@@ -1,17 +1,35 @@
 {
     "scripts": {
+        "dev": "next dev",
+        "build": "next build",
+        "start": "next dev",
         "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
         "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
         "test": "ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=/root/.config/solana/id.json ts-mocha -p ./tsconfig.json -t 1000000 '/root/voting-dapp/anchor/tests/votingdapp.spec.ts'"
     },
     "dependencies": {
         "@coral-xyz/anchor": "0.31.1",
-        "@solana/web3.js": "1.95.4"
+        "@solana/actions": "^1.6.6",
+        "@solana/spl-token": "^0.4.13",
+        "@solana/wallet-adapter-react": "^0.15.39",
+        "@solana/wallet-adapter-react-ui": "^0.9.39",
+        "@solana/web3.js": "1.95.4",
+        "@tabler/icons-react": "^3.34.1",
+        "@tailwindcss/postcss": "^4.1.12",
+        "@tanstack/react-query": "^5.85.5",
+        "@tanstack/react-query-next-experimental": "^5.85.5",
+        "jotai": "^2.13.1",
+        "next": "^15.5.0",
+        "react": "^19.1.1",
+        "react-dom": "^19.1.1",
+        "react-hot-toast": "^2.6.0",
+        "tailwindcss": "^4.1.12"
     },
     "devDependencies": {
         "@types/bn.js": "5.1.6",
         "@types/chai": "5.0.1",
         "@types/mocha": "10.0.9",
+        "@types/react": "19.1.11",
         "chai": "4.3.7",
         "mocha": "10.8.2",
         "prettier": "3.3.3",
