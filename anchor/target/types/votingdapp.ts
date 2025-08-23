@@ -265,6 +265,10 @@ export type Votingdapp = {
       ],
       "args": [
         {
+          "name": "pollId",
+          "type": "u32"
+        },
+        {
           "name": "plusAllocations",
           "type": {
             "vec": {

@@ -259,6 +259,10 @@
       ],
       "args": [
         {
+          "name": "_poll_id",
+          "type": "u32"
+        },
+        {
           "name": "plus_allocations",
           "type": {
             "vec": {

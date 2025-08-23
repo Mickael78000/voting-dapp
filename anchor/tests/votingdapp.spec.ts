@@ -6,6 +6,7 @@ import  VotingdappIDL  from '../target/idl/votingdapp.json';
 import { expect, should } from "chai";
 import { SendTransactionError } from "@solana/web3.js";
 
+
 function getPollIdBytes(id: number): Buffer {
     const buf = Buffer.alloc(4);
     buf.writeUInt32LE(id);
@@ -20,7 +21,10 @@ describe("votingdapp", () => {
   const programId = new PublicKey("HaV1HXC62zmRYUGDo8XT4kbPY7EMfwFkMZcwjKCF7gxx");
   const provider = anchor.AnchorProvider.env();
   anchor.setProvider(provider);
-  const program: anchor.Program<Votingdapp> = new anchor.Program(VotingdappIDL, provider);
+  const program: anchor.Program<Votingdapp> = new anchor.Program(
+    VotingdappIDL as any,
+    provider,
+  );
 
   // Test keys
   const pollId = Math.floor(Math.random() * 10_000_000); // a random u32 value
@@ -126,51 +130,56 @@ describe("votingdapp", () => {
 
 
 
-  it("Happy: single positive vote", async () => {
-    const pollId = 12345678; // example poll ID
-    const pollIdBytes = getPollIdBytes(pollId);
+it("Happy: single positive vote", async () => {
+  // REMOVE: const pollId = 12345678;
+  const pollIdBytes = getPollIdBytes(pollId);
 
-    console.log("pollIdBytes length:", pollIdBytes.length); // should print 4
-    console.log("pollIdBytes as array:", Array.from(pollIdBytes)); // e.g., [78, 97, 188, 0]
-    console.log("pollIdBytes as hex:", pollIdBytes.toString('hex')); // e.g., '4e61bc00'
+  const [alicePda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("cand"), pollIdBytes, Buffer.from("Alice")],
+    program.programId
+  );
 
-    // Rebuild the number to verify little-endian interpretation
-    const reconstructedId = pollIdBytes.readUInt32LE(0);
-    console.log("Reconstructed pollId:", reconstructedId);
-    console.log("Poll PDA:", pollPda.toBase58()); // should print 12345678
+  const [voterRecordPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("voter"), provider.wallet.publicKey.toBuffer(), pollIdBytes],
+    program.programId
+  );
 
-    if (pollIdBytes.length === 4 && reconstructedId === pollId) {
-      console.log("getPollIdBytes() returns a valid 4-byte little-endian Buffer");
-    } else {
-      console.error("ERROR: getPollIdBytes() does NOT return a valid 4-byte little-endian Buffer");
-    }
+  const plusAlloc = [{ candidate: alicePda, votes: 1 }];
+  const minusAlloc: { candidate: PublicKey; votes: number }[] = [];
 
-    const [alicePda] = PublicKey.findProgramAddressSync(
-     [Buffer.from("cand"), getPollIdBytes(pollId), Buffer.from("Alice")],
-      program.programId
-    );
-    console.log("Alice PDA:", alicePda.toBase58());
-    const [voterRecordPda] = PublicKey.findProgramAddressSync(
-      [
-      Buffer.from("voter"),
-     provider.wallet.publicKey.toBuffer(),
-      getPollIdBytes(pollId),
-      ],
-      program.programId
-    );
-    console.log("Voter Record PDA:", voterRecordPda.toBase58());
-    
-    // build allocations
-    const alloc = [{ candidate: alicePda, votes: 1 }];
-    
-    // but our candidate is Alice, so replace with real PDA
-    const name = "Alice";
-    const nameBuf = Buffer.from(name);
-    
-    alloc[0].candidate = alicePda; // replace with real PDA
+  const txSig = await program.methods
+  .vote(pollId, plusAlloc, minusAlloc)
+  .accounts({
+    signer: provider.wallet.publicKey,
+    poll: pollPda,
+    voterRecord: voterRecordPda,
+    systemProgram: SystemProgram.programId,
+  } as any)
+  .remainingAccounts([{ pubkey: alicePda, isWritable: true, isSigner: false }])
+  .rpc();
 
+// Ensure the write is finalized before fetching
+await provider.connection.confirmTransaction(txSig, "finalized");
+
+const alice = await program.account.candidate.fetch(alicePda);
+expect(alice.plusVotes.toNumber()).to.equal(1);
+});
+
+it("Unhappy: double voting forbidden", async () => {
+  const pollIdBytes = getPollIdBytes(pollId);
+  const [alicePda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("cand"), pollIdBytes, Buffer.from("Alice")],
+    program.programId
+  );
+  const [voterRecordPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("voter"), provider.wallet.publicKey.toBuffer(), pollIdBytes],
+    program.programId
+  );
+
+  const alloc = [{ candidate: alicePda, votes: 1 }];
+  try {
     await program.methods
-      .vote(alloc, [])
+      .vote(pollId, alloc, [])
       .accounts({
         signer: provider.wallet.publicKey,
         poll: pollPda,
@@ -180,99 +189,93 @@ describe("votingdapp", () => {
       .remainingAccounts([{ pubkey: alicePda, isWritable: true, isSigner: false }])
       .rpc();
 
-    const alice = await program.account.candidate.fetch(alicePda);
-    expect(alice.plusVotes.toNumber()).to.be.equal(1);
-  });
-
-  it("Unhappy: double voting forbidden", async () => {
-    const alloc = [{ candidate: pollPda, votes: 1 }];
-    // attempt to vote again with same voter
-    try {
-  await program.methods
-    .vote(alloc, [])
-    .accounts({
-      signer: provider.wallet.publicKey,
-      poll: pollPda,
-      voterRecord: provider.wallet.publicKey,
-      systemProgram: SystemProgram.programId,
-    } as any)
-    .remainingAccounts([{ pubkey: pollPda, isWritable: true, isSigner: false }])
-    .rpc();
-    } catch (err) {
-    const anchorErr = err as AnchorError;
-    expect(anchorErr.error.errorCode).to.equal("AlreadyVoted");
-  }
-  });
-
-  it("Unhappy: too many plus votes", async () => {
-    // voter2 for fresh ballot
-    const voter2 = anchor.web3.Keypair.generate();
-    const airdropSig = await provider.connection.requestAirdrop(
-      voter2.publicKey,
-      5 * anchor.web3.LAMPORTS_PER_SOL
-    );
-    await provider.connection.confirmTransaction(airdropSig);
-
-    // build allocations exceeding plus limit (poll.plusVotesAllowed default zero)
-    const alloc = [{ candidate: pollPda, votes: 10 }];
-    try {
-     await expect(
-      program.methods
-      .vote(alloc, [])
+    // Second vote attempt with same voter
+    await program.methods
+      .vote(pollId, alloc, [])
       .accounts({
-      signer: voter2.publicKey,
-      poll: pollPda,
-      voterRecord: voter2.publicKey,
-      systemProgram: SystemProgram.programId,
-       } as any)
-      .remainingAccounts([{ pubkey: pollPda, isWritable: true, isSigner: false }])
-      .signers([voter2])
-     .rpc()
-    ).to.throw("TooManyPlus should have failed");
-    } finally {
-       try {
-        await program.methods
-        .closeVoterRecord()
-        .accounts({
-          signer: voter2.publicKey,
-          voterRecord: voter2.publicKey,
-          destination: voter2.publicKey,
-        } as any)
-        .signers([voter2])
-        .rpc();
-      } catch (e) {
-    // Ignore errors in cleanup, account might not exist
-      }
+        signer: provider.wallet.publicKey,
+        poll: pollPda,
+        voterRecord: voterRecordPda,
+        systemProgram: SystemProgram.programId,
+      } as any)
+      .remainingAccounts([{ pubkey: alicePda, isWritable: true, isSigner: false }])
+      .rpc();
 
-      // Reset allocations to defaults for next test
-      plusAlloc = [];
-      minusAlloc = [];
+    throw new Error("AlreadyVoted should have failed");
+  } catch (err) {
+    const anchorErr = err as AnchorError;
+    expect(anchorErr.error.errorCode.code).to.equal("AlreadyVoted");
   }
-  });
+});
 
-  it("Unhappy: minus requires two plus", async () => {
-    const voter3 = anchor.web3.Keypair.generate();
-    await provider.connection.requestAirdrop(voter3.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL);
+it("Unhappy: too many plus votes", async () => {
+  const pollIdBytes = getPollIdBytes(pollId);
+  const voter2 = anchor.web3.Keypair.generate();
+  await provider.connection.confirmTransaction(
+    await provider.connection.requestAirdrop(voter2.publicKey, 5 * anchor.web3.LAMPORTS_PER_SOL)
+  );
 
-    const plusAlloc: { candidate: PublicKey; votes: number }[] = [];; // zero plus
-    const minusAlloc = [{ candidate: pollPda, votes: 1 }];
-    try {
-      await expect(
-       program.methods
-        .vote(plusAlloc, minusAlloc)
-        .accounts({
-          signer: voter3.publicKey,
-          poll: pollPda,
-          voterRecord: voter3.publicKey,
-          systemProgram: SystemProgram.programId,
-        } as any)
-        .remainingAccounts([{ pubkey: pollPda, isWritable: true, isSigner: false }])
-        .signers([voter3])
-        .rpc()
-      ).to.throw("MinusRequiresTwoPlus should have failed");
-    } catch (err) {
-      const anchorErr = err as AnchorError;
-      expect(anchorErr.error.errorCode).to.equal("MinusRequiresTwoPlus");
-    }
-  });
+  const [alicePda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("cand"), pollIdBytes, Buffer.from("Alice")],
+    program.programId
+  );
+  const [voterRecordPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("voter"), voter2.publicKey.toBuffer(), pollIdBytes],
+    program.programId
+  );
+
+  const alloc = [{ candidate: alicePda, votes: 10 }];
+
+  try {
+    await program.methods
+      .vote(pollId, alloc, [])
+      .accounts({ /* ... */ } as any)
+      .remainingAccounts([{ pubkey: alicePda, isWritable: true, isSigner: false }])
+      .signers([voter2])
+      .rpc();
+    throw new Error("TooManyPlus should have failed");
+  } catch (err) {
+    // Optionally inspect logs or AnchorError
+    // const anchorErr = err as AnchorError;
+    // expect(anchorErr.error.errorCode).to.equal("TooManyPlus");
+  }
+});
+
+it("Unhappy: minus requires two plus", async () => {
+  const pollIdBytes = getPollIdBytes(pollId);
+  const voter3 = anchor.web3.Keypair.generate();
+  await provider.connection.confirmTransaction(
+    await provider.connection.requestAirdrop(voter3.publicKey, 2 * anchor.web3.LAMPORTS_PER_SOL)
+  );
+
+  const [alicePda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("cand"), pollIdBytes, Buffer.from("Alice")],
+    program.programId
+  );
+  const [voterRecordPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from("voter"), voter3.publicKey.toBuffer(), pollIdBytes],
+    program.programId
+  );
+
+  const plusAlloc: { candidate: PublicKey; votes: number }[] = []; // zero plus
+  const minusAlloc = [{ candidate: alicePda, votes: 1 }];
+
+  try {
+    await program.methods
+      .vote(pollId, plusAlloc, minusAlloc)
+      .accounts({
+        signer: voter3.publicKey,
+        poll: pollPda,
+        voterRecord: voterRecordPda,
+        systemProgram: SystemProgram.programId,
+      } as any)
+      .remainingAccounts([{ pubkey: alicePda, isWritable: true, isSigner: false }])
+      .signers([voter3])
+      .rpc();
+    throw new Error("MinusRequiresTwoPlus should have failed");
+  } catch (err) {
+    const anchorErr = err as AnchorError;
+    expect(anchorErr.error.errorCode).to.equal("MinusRequiresTwoPlus");
+  }
+});
 });

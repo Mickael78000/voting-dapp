@@ -66,6 +66,7 @@ pub mod votingdapp {
     /// and multiple plus/minus allocations.
     pub fn vote<'info>(
         ctx: Context<'_, '_, 'info, 'info, CastBallot<'info>>,
+        _poll_id: u32,
         plus_allocations: Vec<VoteAllocation>,
         minus_allocations: Vec<VoteAllocation>,
     ) -> Result<()> {
@@ -123,7 +124,7 @@ pub mod votingdapp {
                 .expect("Missing candidate account");
             let mut candidate: Account<Candidate> = Account::try_from(&ctx.remaining_accounts[idx])?;
             candidate.plus_votes = candidate.plus_votes.checked_add(plus as u64).unwrap();
-            candidate.exit(&poll.key())?;
+            candidate.exit(&crate::ID)?;
         }
     
         // Tally minus votes similarly
@@ -136,7 +137,7 @@ pub mod votingdapp {
                 .expect("Missing candidate account");
             let mut candidate: Account<Candidate> = Account::try_from(&ctx.remaining_accounts[idx])?;
             candidate.minus_votes = candidate.minus_votes.checked_add(minus as u64).unwrap();
-            candidate.exit(&poll.key())?;
+            candidate.exit(&crate::ID)?;
         }
     
         // Mark the voter record
@@ -148,6 +149,8 @@ pub mod votingdapp {
     }
     pub fn close_voter_record(_ctx: Context<CloseVoterRecord>) -> Result<()> {
     // No specific logic needed, Anchor auto handles closing
+        msg!("Hello world");
+
     Ok(())
 }
     
@@ -201,20 +204,17 @@ pub struct InitializeCandidate<'info> {
 }
 
 #[derive(Accounts)]
-#[instruction(
-    plus_allocations: Vec<(Pubkey, u8)>,
-    minus_allocations: Vec<(Pubkey, u8)>,
-    poll_id: u64
-)]
+#[instruction(poll_id: u32)]
 pub struct CastBallot<'info> {
-    /// CHECK: This is the user signing the transaction, verified by the runtime
     #[account(mut)]
     pub signer: Signer<'info>,
+    
     #[account(
         seeds = [b"poll", &poll_id.to_le_bytes()],
         bump
     )]
     pub poll: Account<'info, Poll>,
+    
     #[account(
         init_if_needed,
         payer = signer,
@@ -223,8 +223,10 @@ pub struct CastBallot<'info> {
         bump
     )]
     pub voter_record: Account<'info, VoterRecord>,
+    
     pub system_program: Program<'info, System>,
-    // remaining_accounts: candidate PDAs to tally votes
+    
+    // Candidate PDAs are supplied via ctx.remaining_accounts
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone)]
