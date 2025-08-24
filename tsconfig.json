@@ -8,7 +8,8 @@
       "./node_modules/@types"
     ],
     "lib": [
-      "es2015"
+      "es2015",
+      "dom"
     ],
     "module": "commonjs",
     "target": "es6",
@@ -20,6 +21,7 @@
     "noEmit": true,
     "incremental": true,
     "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
     "isolatedModules": true,
     "jsx": "preserve",
     "plugins": [
@@ -33,7 +35,8 @@
       "@project/*": ["anchor/src/*"],
       "@project/anchor": ["anchor/src/index.ts"],
       "@/*": ["src/*"],
-      "@solana/wallet-adapter-react": ["node_modules/@solana/wallet-adapter-react"]
+      "@solana/wallet-adapter-react": ["node_modules/@solana/wallet-adapter-react"],
+      "tailwindcss/postcss": ["node_modules/tailwindcss"]
     }
   },
   "include": [

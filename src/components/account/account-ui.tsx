@@ -297,7 +297,7 @@ function ModalAirdrop({ hide, show, address }: { hide: () => void; show: boolean
         placeholder="Amount"
         className="input input-bordered w-full"
         value={amount}
-        onChange={(e) => setAmount(e.target.value)}
+        onChange={(e) => setAmount(e.currentTarget.value)}
       />
     </AppModal>
   )
@@ -335,7 +335,7 @@ function ModalSend({ hide, show, address }: { hide: () => void; show: boolean; a
         placeholder="Destination"
         className="input input-bordered w-full"
         value={destination}
-        onChange={(e) => setDestination(e.target.value)}
+        onChange={(e) => setDestination(e.currentTarget.value)}
       />
       <input
         disabled={mutation.isPending}
@@ -345,7 +345,7 @@ function ModalSend({ hide, show, address }: { hide: () => void; show: boolean; a
         placeholder="Amount"
         className="input input-bordered w-full"
         value={amount}
-        onChange={(e) => setAmount(e.target.value)}
+        onChange={(e) => setAmount(e.currentTarget.value)}
       />
     </AppModal>
   )

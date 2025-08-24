@@ -9,13 +9,16 @@ import {
   PublicKey,
   SystemProgram,
   TransactionMessage,
+  Transaction
 } from "@solana/web3.js";
 import VotingdappIDL from "@/../anchor/target/idl/votingdapp.json";
 import { Votingdapp } from "anchor/target/types/votingdapp";
 // import { publicKey } from "@coral-xyz/anchor/dist/cjs/utils";
-const { Transaction } = require('@coral-xyz/anchor/dist/cjs/spl_governance');
+// const { Transaction } = require('@coral-xyz/anchor/dist/cjs/spl_governance');
 
-export const OPTIONS = { GET: {} };
+export async function OPTIONS() {
+  return new Response(null, { status: 204, headers: ACTIONS_CORS_HEADERS });
+}
 
 // Helper: 4-byte LE poll ID
 function getPollIdBytes(pollId: number): Buffer {
@@ -269,7 +272,7 @@ export async function POST(request: Request) {
     recentBlockhash: blockhash,
     instructions: [ix],
   }).compileToLegacyMessage();
-  const tx = new Transaction(message);
+  const tx = new anchor.web3.Transaction(message);
   const response = await createPostResponse({
     fields: { type: "transaction", transaction: tx },
   });
