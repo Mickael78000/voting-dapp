@@ -330,19 +330,6 @@ export type Votingdapp = {
         115,
         33
       ]
-    },
-    {
-      "name": "voterRecordData",
-      "discriminator": [
-        223,
-        199,
-        185,
-        121,
-        242,
-        115,
-        207,
-        104
-      ]
     }
   ],
   "errors": [
@@ -461,26 +448,6 @@ export type Votingdapp = {
     },
     {
       "name": "voterRecord",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "hasVoted",
-            "type": "bool"
-          },
-          {
-            "name": "plusUsed",
-            "type": "u8"
-          },
-          {
-            "name": "minusUsed",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "voterRecordData",
       "type": {
         "kind": "struct",
         "fields": [

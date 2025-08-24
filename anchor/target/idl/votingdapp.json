@@ -324,19 +324,6 @@
         115,
         33
       ]
-    },
-    {
-      "name": "VoterRecordData",
-      "discriminator": [
-        223,
-        199,
-        185,
-        121,
-        242,
-        115,
-        207,
-        104
-      ]
     }
   ],
   "errors": [
@@ -455,26 +442,6 @@
     },
     {
       "name": "VoterRecord",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "has_voted",
-            "type": "bool"
-          },
-          {
-            "name": "plus_used",
-            "type": "u8"
-          },
-          {
-            "name": "minus_used",
-            "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "VoterRecordData",
       "type": {
         "kind": "struct",
         "fields": [

@@ -20,7 +20,7 @@ pub mod votingdapp {
         poll_end: u64,
         winners: u8,
     ) -> Result<()> {
-        msg!("Hello world");
+        // msg!("Hello world");
         let poll = &mut ctx.accounts.poll;
         poll.poll_id = poll_id as u32;
         poll.poll_description = poll_description;
@@ -240,7 +240,7 @@ pub struct VoteAllocation {
 #[derive(Accounts)]
 pub struct CloseVoterRecord<'info> {
     #[account(mut, close = signer)]
-    pub voter_record: Account<'info, VoterRecordData>,
+    pub voter_record: Account<'info, VoterRecord>,
     /// CHECK: This is the user signing the transaction, verified by the runtime
     #[account(signer)]
     pub signer: AccountInfo<'info>,
@@ -276,12 +276,6 @@ pub struct VoterRecord {
     pub minus_used: u8,
 }
 
-#[account]
-pub struct VoterRecordData {
-    pub has_voted: bool,
-    pub plus_used: u8,
-    pub minus_used: u8,
-}
 
 #[error_code]
 pub enum ErrorCode {

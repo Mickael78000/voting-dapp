@@ -9,10 +9,10 @@ import {
   PublicKey,
   SystemProgram,
   TransactionMessage,
-  VersionedTransaction,
 } from "@solana/web3.js";
 import VotingdappIDL from "@/../anchor/target/idl/votingdapp.json";
-import { publicKey } from "@coral-xyz/anchor/dist/cjs/utils";
+import { Votingdapp } from "anchor/target/types/votingdapp";
+// import { publicKey } from "@coral-xyz/anchor/dist/cjs/utils";
 const { Transaction } = require('@coral-xyz/anchor/dist/cjs/spl_governance');
 
 export const OPTIONS = { GET: {} };
@@ -29,15 +29,16 @@ export async function GET(request: Request) {
     "http://127.0.0.1:8899",
     "confirmed"
   );
-const publicKey = new PublicKey("HaV1HXC62zmRYUGDo8XT4kbPY7EMfwFkMZcwjKCF7gxx");
-// Minimal wallet implementation for AnchorProvider
-const wallet = {
-  publicKey,
-  signTransaction: async (tx: any) => tx,
-  signAllTransactions: async (txs: any[]) => txs,
-};
-const provider = new AnchorProvider(connection, wallet);
-const program = new Program(VotingdappIDL as any, provider);
+  
+  const publicKey = new PublicKey("HaV1HXC62zmRYUGDo8XT4kbPY7EMfwFkMZcwjKCF7gxx");
+    // Minimal wallet implementation for AnchorProvider
+    const wallet = {
+      publicKey,
+      signTransaction: async (tx: any) => tx,
+      signAllTransactions: async (txs: any[]) => txs,
+    };
+    const provider = new AnchorProvider(connection, wallet);
+    const program = new Program<Votingdapp>(VotingdappIDL as any, { connection });
 
   // Fetch all polls
   const pollsRaw = await program.account.poll.all();
@@ -138,7 +139,7 @@ export async function POST(request: Request) {
     signAllTransactions: async (txs: any[]) => txs,
   };
   const provider = new AnchorProvider(connection, wallet);
-  const program = new Program(VotingdappIDL as any, provider);
+    const program = new Program<Votingdapp>(VotingdappIDL as any, { connection });
 
   // Derive poll PDA correctly
   const [pollPda] = PublicKey.findProgramAddressSync(
@@ -155,8 +156,8 @@ export async function POST(request: Request) {
     });
   }
 
-  const body = await request.json();
-  if (!body.account) {
+  const body = await request.json() as { account: string; plusAllocations: any; minusAllocations: any };
+  if (!body?.account) {
     return new Response("Invalid account", {
       status: 400,
       headers: ACTIONS_CORS_HEADERS,
@@ -258,7 +259,7 @@ export async function POST(request: Request) {
       poll: pollPda,
       voterRecord: voterRecordPda,
       systemProgram: SystemProgram.programId,
-    })
+    } as any)
     .remainingAccounts(remainingAccounts)
     .instruction();
 
