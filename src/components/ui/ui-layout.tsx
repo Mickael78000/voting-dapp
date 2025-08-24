@@ -15,12 +15,9 @@ export function UiLayout({ children, links }: { children: ReactNode; links: { la
 
   return (
     <div className="h-full flex flex-col">
-      <div className="navbar bg-base-300 dark:text-neutral-content flex-col md:flex-row space-y-2 md:space-y-0">
-        <div className="flex-1">
-          <Link className="btn btn-ghost normal-case text-xl" href="/">
-            Votingdapp
-          </Link>
-          <ul className="menu menu-horizontal px-1 space-x-2">
+      <div className="navbar bg-base-300 text-base-content">
+        <div className="navbar-start">
+          <ul className="menu menu-horizontal px-1 gap-2">
             {links.map(({ label, path }) => (
               <li key={path}>
                 <Link className={pathname.startsWith(path) ? 'active' : ''} href={path}>
@@ -30,7 +27,12 @@ export function UiLayout({ children, links }: { children: ReactNode; links: { la
             ))}
           </ul>
         </div>
-        <div className="flex-none space-x-2">
+        <div className="navbar-center">
+          <Link className="btn btn-ghost normal-case text-xl" href="/">
+            Votingdapp
+          </Link>
+        </div>
+        <div className="navbar-end gap-2">
           <WalletButton />
           <ClusterUiSelect />
         </div>

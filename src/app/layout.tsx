@@ -18,7 +18,7 @@ const links: { label: string; path: string }[] = [
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
-      <body>
+      <body className="min-h-screen bg-base-200">
         <ReactQueryProvider>
           <ClusterProvider>
             <SolanaProvider>

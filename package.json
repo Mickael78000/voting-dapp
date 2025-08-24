@@ -31,6 +31,7 @@
         "@types/mocha": "10.0.9",
         "@types/react": "19.1.11",
         "chai": "4.3.7",
+        "daisyui": "^5.0.50",
         "mocha": "10.8.2",
         "prettier": "3.3.3",
         "ts-mocha": "10.0.0",

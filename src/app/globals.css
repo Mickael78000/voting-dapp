@@ -1,6 +1,8 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+/* Add this line for Tailwind v4 */
+@plugin "daisyui";
 
 html,
 body {
