@@ -1,104 +1,84 @@
 'use client'
 
-import { getVotingdappProgram, getVotingdappProgramId } from '@project/anchor'
-import { useConnection } from '@solana/wallet-adapter-react'
-import { Cluster, Keypair, PublicKey } from '@solana/web3.js'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useMemo } from 'react'
-import toast from 'react-hot-toast'
-import { useCluster } from '../cluster/cluster-data-access'
-import { useAnchorProvider } from '../solana/solana-provider'
-import { useTransactionToast } from '../ui/ui-layout'
 
-export function useVotingdappProgram() {
-  const { connection } = useConnection()
-  const { cluster } = useCluster()
-  const transactionToast = useTransactionToast()
-  const provider = useAnchorProvider()
-  const programId = useMemo(() => getVotingdappProgramId(cluster.network as Cluster), [cluster])
-  const program = useMemo(() => getVotingdappProgram(provider, programId), [provider, programId])
+export interface UICandidate {
+  publicKey: string
+  name: string
+}
 
-  const accounts = useQuery({
-    queryKey: ['votingdapp', 'all', { cluster }],
-    queryFn: () => program.account.votingdapp.all(),
-  })
+export interface UIPoll {
+  id: number
+  name: string
+  plusVotesAllowed: number
+  minusVotesAllowed: number
+  candidates: UICandidate[]
+}
 
-  const getProgramAccount = useQuery({
-    queryKey: ['get-program-account', { cluster }],
-    queryFn: () => connection.getParsedAccountInfo(programId),
-  })
+function parsePollFromActionGetResponse(data: any): UIPoll | null {
+  if (!data) return null
+  const href: string | undefined = data?.links?.actions?.[0]?.href
+  if (!href) return null
+  // Avoid relying on window/location; parse query from href directly
+  const queryString = href.includes('?') ? href.substring(href.indexOf('?') + 1) : ''
+  const params = new URLSearchParams(queryString)
+  const pollIdParam = params.get('pollId')
+  const id = pollIdParam ? Number(pollIdParam) : undefined
+  if (!id || Number.isNaN(id)) return null
 
-  const initialize = useMutation({
-    mutationKey: ['votingdapp', 'initialize', { cluster }],
-    mutationFn: (keypair: Keypair) =>
-      program.methods.initialize().accounts({ votingdapp: keypair.publicKey }).signers([keypair]).rpc(),
-    onSuccess: (signature) => {
-      transactionToast(signature)
-      return accounts.refetch()
-    },
-    onError: () => toast.error('Failed to initialize account'),
-  })
+  const desc: string = data?.description || ''
+  const match = desc.match(/up to\s+(\d+)\s+positive\s+and\s+(\d+)\s+negative/i)
+  const plus = match ? Number(match[1]) : 0
+  const minus = match ? Number(match[2]) : 0
+
+  const candidates: UICandidate[] = (data?.candidates || []).map((c: any) => ({
+    publicKey: String(c.publicKey),
+    name: String(c.name),
+  }))
 
   return {
-    program,
-    programId,
-    accounts,
-    getProgramAccount,
-    initialize,
+    id,
+    name: data?.title || `Poll ${id}`,
+    plusVotesAllowed: plus,
+    minusVotesAllowed: minus,
+    candidates,
   }
 }
 
-export function useVotingdappProgramAccount({ account }: { account: PublicKey }) {
-  const { cluster } = useCluster()
-  const transactionToast = useTransactionToast()
-  const { program, accounts } = useVotingdappProgram()
-
-  const accountQuery = useQuery({
-    queryKey: ['votingdapp', 'fetch', { cluster, account }],
-    queryFn: () => program.account.votingdapp.fetch(account),
-  })
-
-  const closeMutation = useMutation({
-    mutationKey: ['votingdapp', 'close', { cluster, account }],
-    mutationFn: () => program.methods.close().accounts({ votingdapp: account }).rpc(),
-    onSuccess: (tx) => {
-      transactionToast(tx)
-      return accounts.refetch()
+export function useVoteGet() {
+  return useQuery<{ raw: any; poll: UIPoll | null }>({
+    queryKey: ['vote', 'get'],
+    queryFn: async () => {
+      const res = await fetch('/api/vote', { cache: 'no-store' })
+      if (!res.ok) throw new Error(await res.text())
+      const raw = await res.json()
+      const poll = parsePollFromActionGetResponse(raw)
+      return { raw, poll }
     },
   })
+}
 
-  const decrementMutation = useMutation({
-    mutationKey: ['votingdapp', 'decrement', { cluster, account }],
-    mutationFn: () => program.methods.decrement().accounts({ votingdapp: account }).rpc(),
-    onSuccess: (tx) => {
-      transactionToast(tx)
-      return accountQuery.refetch()
+export interface PostVoteInput {
+  pollId: number
+  account: string
+  plus: string[]
+  minus: string[]
+}
+
+export function useVotePost() {
+  return useMutation({
+    mutationKey: ['vote', 'post'],
+    mutationFn: async ({ pollId, account, plus, minus }: PostVoteInput) => {
+      const plusAllocations = plus.map((candidate) => ({ candidate, votes: 1 }))
+      const minusAllocations = minus.map((candidate) => ({ candidate, votes: 1 }))
+
+      const res = await fetch(`/api/vote?pollId=${pollId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ account, plusAllocations, minusAllocations }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      return res.json()
     },
   })
-
-  const incrementMutation = useMutation({
-    mutationKey: ['votingdapp', 'increment', { cluster, account }],
-    mutationFn: () => program.methods.increment().accounts({ votingdapp: account }).rpc(),
-    onSuccess: (tx) => {
-      transactionToast(tx)
-      return accountQuery.refetch()
-    },
-  })
-
-  const setMutation = useMutation({
-    mutationKey: ['votingdapp', 'set', { cluster, account }],
-    mutationFn: (value: number) => program.methods.set(value).accounts({ votingdapp: account }).rpc(),
-    onSuccess: (tx) => {
-      transactionToast(tx)
-      return accountQuery.refetch()
-    },
-  })
-
-  return {
-    accountQuery,
-    closeMutation,
-    decrementMutation,
-    incrementMutation,
-    setMutation,
-  }
 }

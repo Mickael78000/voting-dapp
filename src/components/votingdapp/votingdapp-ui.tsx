@@ -18,7 +18,7 @@ interface Poll {
   candidates: Candidate[]
 }
 
-export default function D21VotingUI({ pollId }: { pollId: number }) {
+export default function D21VotingUI() {
   const { publicKey } = useWallet()
   const [poll, setPoll] = useState<Poll | null>(null)
   const [loading, setLoading] = useState(true)
@@ -31,12 +31,43 @@ export default function D21VotingUI({ pollId }: { pollId: number }) {
   useEffect(() => {
     async function fetchPoll() {
       try {
-        const response = await fetch(`/api/polls/${pollId}`)
+        // Fetch the action response from /api/vote
+        const response = await fetch(`/api/vote`)
         if (!response.ok) {
           throw new Error('Failed to fetch poll data')
         }
-        const data = await response.json()
-        setPoll(data)
+        const data: any = await response.json()
+
+        // Parse pollId from action href like /api/vote?pollId=123
+        const href: string | undefined = data?.links?.actions?.[0]?.href
+        const queryString = href && href.includes('?') ? href.substring(href.indexOf('?') + 1) : ''
+        const params = new URLSearchParams(queryString)
+        const parsedPollId = Number(params.get('pollId'))
+
+        // Parse limits from description text "Cast up to X positive and Y negative votes."
+        const desc: string = data?.description || ''
+        const match = desc.match(/up to\s+(\d+)\s+positive\s+and\s+(\d+)\s+negative/i)
+        const plus = match ? Number(match[1]) : 0
+        const minus = match ? Number(match[2]) : 0
+
+        const candidates: Candidate[] = (data?.candidates || []).map((c: any) => ({
+          publicKey: String(c.publicKey),
+          name: String(c.name),
+        }))
+
+        if (!parsedPollId || Number.isNaN(parsedPollId) || candidates.length === 0) {
+          throw new Error('No active poll found')
+        }
+
+        const uiPoll: Poll = {
+          id: parsedPollId,
+          name: data?.title || `Poll ${parsedPollId}`,
+          plusVotesAllowed: plus,
+          minusVotesAllowed: minus,
+          candidates,
+        }
+
+        setPoll(uiPoll)
       } catch (err) {
         setError('Failed to load poll data')
         console.error(err)
@@ -46,7 +77,7 @@ export default function D21VotingUI({ pollId }: { pollId: number }) {
     }
 
     fetchPoll()
-  }, [pollId])
+  }, [])
 
   const handlePlusVote = (candidateKey: string) => {
     if (plusVotes.includes(candidateKey)) {
@@ -99,7 +130,7 @@ export default function D21VotingUI({ pollId }: { pollId: number }) {
         votes: 1
       }))
 
-      const response = await fetch(`/api/vote?pollId=${pollId}`, {
+      const response = await fetch(`/api/vote?pollId=${poll?.id}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -162,7 +193,7 @@ export default function D21VotingUI({ pollId }: { pollId: number }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
             <div>
               <h2 className="text-xl font-semibold mb-3">Positive Votes ({plusVotes.length}/{poll.plusVotesAllowed})</h2>
-                            <ul className="space-y-2">
+              <ul className="space-y-2">
                 {poll.candidates.map((candidate) => (
                   <li key={candidate.publicKey} className="flex items-center">
                     <button
