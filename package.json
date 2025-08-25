@@ -6,6 +6,7 @@
         "lint:fix": "prettier */*.js \"*/**/*{.js,.ts}\" -w",
         "lint": "prettier */*.js \"*/**/*{.js,.ts}\" --check",
         "lint:eslint": "next lint",
+        "init-poll": "ts-node scripts/initialize-poll.ts",
         "test": "ANCHOR_PROVIDER_URL=https://api.devnet.solana.com ANCHOR_WALLET=/root/.config/solana/id.json ts-mocha -p ./tsconfig.json -t 1000000 '/root/voting-dapp/anchor/tests/votingdapp.spec.ts'"
     },
     "dependencies": {
@@ -38,6 +39,7 @@
         "mocha": "10.8.2",
         "prettier": "3.3.3",
         "ts-mocha": "10.0.0",
+        "ts-node": "^10.9.2",
         "typescript": "5.6.3"
     },
     "type": "module"

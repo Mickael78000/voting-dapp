@@ -11,14 +11,22 @@ import {
   WalletProvider,
 } from '@solana/wallet-adapter-react'
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui'
-import { ReactNode, useCallback, useMemo } from 'react'
+import { ReactNode, useCallback, useMemo, useEffect, useState } from 'react'
 import { useCluster } from '../cluster/cluster-data-access'
 
 require('@solana/wallet-adapter-react-ui/styles.css')
 
-export const WalletButton = dynamic(async () => (await import('@solana/wallet-adapter-react-ui')).WalletMultiButton, {
+const WalletButton = dynamic(async () => (await import('@solana/wallet-adapter-react-ui')).WalletMultiButton, {
   ssr: false,
 })
+
+// Render the Wallet button only after mount so the server never attempts to render it
+export function ClientOnlyWalletButton() {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => setMounted(true), [])
+  if (!mounted) return null
+  return <WalletButton />
+}
 
 export function SolanaProvider({ children }: { children: ReactNode }) {
   const { cluster } = useCluster()

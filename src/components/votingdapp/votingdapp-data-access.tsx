@@ -17,20 +17,22 @@ export interface UIPoll {
 
 function parsePollFromActionGetResponse(data: any): UIPoll | null {
   if (!data) return null
+  
+  // Extract poll ID from the action href
   const href: string | undefined = data?.links?.actions?.[0]?.href
   if (!href) return null
-  // Avoid relying on window/location; parse query from href directly
+  
   const queryString = href.includes('?') ? href.substring(href.indexOf('?') + 1) : ''
   const params = new URLSearchParams(queryString)
   const pollIdParam = params.get('pollId')
   const id = pollIdParam ? Number(pollIdParam) : undefined
+  
   if (!id || Number.isNaN(id)) return null
 
-  const desc: string = data?.description || ''
-  const match = desc.match(/up to\s+(\d+)\s+positive\s+and\s+(\d+)\s+negative/i)
-  const plus = match ? Number(match[1]) : 0
-  const minus = match ? Number(match[2]) : 0
-
+  // Use direct fields from route.ts response instead of regex parsing
+  const plusVotesAllowed = data?.plusVotesAllowed || 0
+  const minusVotesAllowed = data?.minusVotesAllowed || 0
+  
   const candidates: UICandidate[] = (data?.candidates || []).map((c: any) => ({
     publicKey: String(c.publicKey),
     name: String(c.name),
@@ -38,19 +40,21 @@ function parsePollFromActionGetResponse(data: any): UIPoll | null {
 
   return {
     id,
-    name: data?.title || `Poll ${id}`,
-    plusVotesAllowed: plus,
-    minusVotesAllowed: minus,
+    name: data?.name || data?.title || `Poll ${id}`,
+    plusVotesAllowed,
+    minusVotesAllowed,
     candidates,
   }
 }
 
-export function useVoteGet() {
+export function useVoteGet(pollId: number = 1) {
   return useQuery<{ raw: any; poll: UIPoll | null }>({
-    queryKey: ['vote', 'get'],
+    queryKey: ['vote', 'get', pollId],
     queryFn: async () => {
-      const res = await fetch('/api/vote', { cache: 'no-store' })
+      // Fix: Include pollId parameter
+      const res = await fetch(`/api/vote?pollId=${pollId}`, { cache: 'no-store' })
       if (!res.ok) throw new Error(await res.text())
+      
       const raw = await res.json()
       const poll = parsePollFromActionGetResponse(raw)
       return { raw, poll }
@@ -69,16 +73,59 @@ export function useVotePost() {
   return useMutation({
     mutationKey: ['vote', 'post'],
     mutationFn: async ({ pollId, account, plus, minus }: PostVoteInput) => {
-      const plusAllocations = plus.map((candidate) => ({ candidate, votes: 1 }))
-      const minusAllocations = minus.map((candidate) => ({ candidate, votes: 1 }))
-
       const res = await fetch(`/api/vote?pollId=${pollId}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ account, plusAllocations, minusAllocations }),
+        // Fix: Use correct body structure that matches route.ts expectations
+        body: JSON.stringify({
+          account,
+          data: {
+            plusVotes: plus,   // Direct array of candidate public key strings
+            minusVotes: minus  // Direct array of candidate public key strings
+          }
+        }),
       })
-      if (!res.ok) throw new Error(await res.text())
+      
+      if (!res.ok) {
+        const errorText = await res.text()
+        throw new Error(errorText)
+      }
+      
       return res.json()
+    },
+  })
+}
+
+export interface InitializePollInput {
+  pollId: number
+  description: string
+  winners: number
+}
+
+export interface InitializeCandidateInput {
+  pollId: number
+  candidateName: string
+}
+
+// Helper hooks for poll initialization (if needed)
+export function useInitializePoll() {
+  return useMutation({
+    mutationKey: ['poll', 'initialize'],
+    mutationFn: async ({ pollId, description, winners }: InitializePollInput) => {
+      // This would need a separate API endpoint for poll initialization
+      // For now, this is just a placeholder
+      throw new Error('Poll initialization not implemented in current API')
+    },
+  })
+}
+
+export function useInitializeCandidate() {
+  return useMutation({
+    mutationKey: ['candidate', 'initialize'],
+    mutationFn: async ({ pollId, candidateName }: InitializeCandidateInput) => {
+      // This would need a separate API endpoint for candidate initialization
+      // For now, this is just a placeholder
+      throw new Error('Candidate initialization not implemented in current API')
     },
   })
 }

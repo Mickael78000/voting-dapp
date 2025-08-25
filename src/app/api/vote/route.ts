@@ -83,19 +83,17 @@ export async function GET(request: Request) {
   const program = createProgram(connection);
 
   try {
-    // Try to fetch the poll from blockchain
     const pollPDA = getPollPDA(pollId);
     let pollAccount;
     let candidates: Array<{ publicKey: string; name: string }> = [];
-    
+
     try {
       pollAccount = await program.account.poll.fetch(pollPDA);
-      
-      // Fetch candidates for this poll
+
+      // Fetch actual candidates logic (existing code)
       const candidatesRaw = await program.account.candidate.all();
       candidates = candidatesRaw
         .filter((c) => {
-          // Derive PDA to verify this candidate belongs to our poll
           const nameBytes = Buffer.from(c.account.name).subarray(
             0,
             c.account.name.findIndex((b) => b === 0) >= 0
@@ -110,10 +108,10 @@ export async function GET(request: Request) {
           name: Buffer.from(c.account.name).toString().replace(/\0/g, ""),
         }));
 
-      // Create response with actual blockchain data
-      const response: ActionGetResponse & { 
-        name: string; 
-        plusVotesAllowed: number; 
+      // Return actual poll data
+      const response: ActionGetResponse & {
+        name: string;
+        plusVotesAllowed: number;
         minusVotesAllowed: number;
         candidates: Array<{ publicKey: string; name: string }>;
       } = {
@@ -138,7 +136,7 @@ export async function GET(request: Request) {
                   required: true,
                 },
                 {
-                  name: "minusVotes", 
+                  name: "minusVotes",
                   label: `Select up to ${pollAccount.minusVotesAllowed} candidates for negative votes (optional)`,
                   required: false,
                 },
@@ -151,57 +149,8 @@ export async function GET(request: Request) {
       return Response.json(response, { headers: ACTIONS_CORS_HEADERS });
 
     } catch (pollError) {
-      // Poll doesn't exist on-chain, provide demo data
-      console.log("Poll not found on-chain, providing demo data");
-      
-      const demoCandidates = [
-        "Alice - Education", "Alice - Security", "Alice - Healthcare", 
-        "Alice - Defense", "Alice - Taxes",
-        "Bob - Education", "Bob - Security", "Bob - Healthcare", 
-        "Bob - Defense", "Bob - Taxes"
-      ].map(name => ({
-        publicKey: getCandidatePDA(pollId, name).toString(),
-        name,
-      }));
-
-      const response: ActionGetResponse & { 
-        name: string; 
-        plusVotesAllowed: number; 
-        minusVotesAllowed: number;
-        candidates: Array<{ publicKey: string; name: string }>;
-      } = {
-        icon: "https://example.com/voting-icon.jpg",
-        title: "Alice vs Bob — Public Policy Preference Poll",
-        description: "D21 Voting System Demo - Cast up to 2 positive and 1 negative votes. Choose your preferred policies across 5 key areas: education, security, healthcare, defense, and taxes.",
-        label: "Vote",
-        name: "Alice vs Bob — Public Policy Preferences",
-        plusVotesAllowed: 2,
-        minusVotesAllowed: 1,
-        candidates: demoCandidates,
-        links: {
-          actions: [
-            {
-              label: "Cast Your Votes",
-              href: `/api/vote?pollId=${pollId}`,
-              type: "post",
-              parameters: [
-                {
-                  name: "plusVotes",
-                  label: "Select up to 2 candidates for positive votes",
-                  required: true,
-                },
-                {
-                  name: "minusVotes",
-                  label: "Select up to 1 candidate for negative votes (optional)",
-                  required: false,
-                },
-              ],
-            },
-          ],
-        },
-      };
-
-      return Response.json(response, { headers: ACTIONS_CORS_HEADERS });
+      // Enhanced fallback for missing polls
+      return generateFallbackPoll(pollId);
     }
 
   } catch (error) {
@@ -211,6 +160,93 @@ export async function GET(request: Request) {
       { status: 500, headers: ACTIONS_CORS_HEADERS }
     );
   }
+}
+
+// Enhanced fallback function
+function generateFallbackPoll(pollId: number): Response {
+  const fallbackPolls = {
+    1: {
+      title: "Alice vs Bob — Public Policy Preference Poll",
+      description: "D21 Voting System Demo - Cast up to 2 positive and 1 negative votes. Choose your preferred policies across 5 key areas: education, security, healthcare, defense, and taxes.",
+      name: "Alice vs Bob — Public Policy Preferences",
+      plusVotesAllowed: 2,
+      minusVotesAllowed: 1,
+      candidates: [
+        "Alice - Education", "Alice - Security", "Alice - Healthcare",
+        "Alice - Defense", "Alice - Taxes",
+        "Bob - Education", "Bob - Security", "Bob - Healthcare",
+        "Bob - Defense", "Bob - Taxes"
+      ]
+    },
+    2: {
+      title: "Tech vs Environment Policy Debate",
+      description: "D21 Voting Demo - Cast up to 3 positive and 1 negative votes. This poll is not yet initialized on-chain.",
+      name: "Tech vs Environment Policy Debate",
+      plusVotesAllowed: 3,
+      minusVotesAllowed: 1,
+      candidates: [
+        "Tech Innovation Focus",
+        "Environmental Protection",
+        "Balanced Approach",
+        "Economic Growth Priority",
+        "Renewable Energy Push"
+      ]
+    },
+    // Add more fallback polls as needed
+  } as const;
+
+  const fallback = (fallbackPolls as any)[pollId] || {
+    title: `Poll ${pollId} - Not Found`,
+    description: `D21 Voting System - Poll ${pollId} has not been initialized on-chain yet.`,
+    name: `Uninitialized Poll ${pollId}`,
+    plusVotesAllowed: 2,
+    minusVotesAllowed: 1,
+    candidates: ["Option A", "Option B", "Option C", "Option D"]
+  };
+
+  const demoCandidates = fallback.candidates.map((name: string) => ({
+    publicKey: getCandidatePDA(pollId, name).toString(),
+    name,
+  }));
+
+  const response: ActionGetResponse & {
+    name: string;
+    plusVotesAllowed: number;
+    minusVotesAllowed: number;
+    candidates: Array<{ publicKey: string; name: string }>;
+  } = {
+    icon: "https://example.com/voting-icon.jpg",
+    title: fallback.title,
+    description: fallback.description,
+    label: "Vote (Demo Mode)",
+    name: fallback.name,
+    plusVotesAllowed: fallback.plusVotesAllowed,
+    minusVotesAllowed: fallback.minusVotesAllowed,
+    candidates: demoCandidates,
+    links: {
+      actions: [
+        {
+          label: "Cast Your Votes (Demo)",
+          href: `/api/vote?pollId=${pollId}`,
+          type: "post",
+          parameters: [
+            {
+              name: "plusVotes",
+              label: `Select up to ${fallback.plusVotesAllowed} candidates for positive votes`,
+              required: true,
+            },
+            {
+              name: "minusVotes",
+              label: `Select up to ${fallback.minusVotesAllowed} candidates for negative votes (optional)`,
+              required: false,
+            },
+          ],
+        },
+      ],
+    },
+  };
+
+  return Response.json(response, { headers: ACTIONS_CORS_HEADERS });
 }
 
 export async function POST(request: Request) {
@@ -278,15 +314,8 @@ export async function POST(request: Request) {
     try {
       pollAccount = await program.account.poll.fetch(pollPDA);
     } catch {
-      // Demo mode for poll ID 1
-      if (pollId === 1) {
-        return handleDemoVote(plusVoteCandidates, minusVoteCandidates);
-      }
-      
-      return Response.json(
-        { error: "Poll not found" },
-        { status: 404, headers: ACTIONS_CORS_HEADERS }
-      );
+      // Enhanced fallback handling for all poll IDs
+      return handleDemoVote(pollId, plusVoteCandidates, minusVoteCandidates);
     }
 
     // Validate vote constraints
@@ -410,47 +439,46 @@ export async function POST(request: Request) {
 
   } catch (error: any) {
     console.error("Error in POST handler:", error);
-    
-    // Handle specific program errors
-    let errorMessage = "Failed to create vote transaction";
-    if (error.message?.includes("Invalid candidate public key")) {
-      errorMessage = error.message;
-    } else if (error.message?.includes("TooManyPlus")) {
-      errorMessage = "Too many positive votes";
-    } else if (error.message?.includes("TooManyMinus")) {
-      errorMessage = "Too many negative votes";
-    } else if (error.message?.includes("MinusRequiresTwoPlus")) {
-      errorMessage = "At least 2 positive votes required for negative votes";
-    } else if (error.message?.includes("AlreadyVoted")) {
-      errorMessage = "You have already voted in this poll";
-    }
-
     return Response.json(
-      { error: errorMessage },
-      { status: 400, headers: ACTIONS_CORS_HEADERS }
+      {
+        error: `Poll ${pollId} not found on-chain. Please initialize the poll first or try demo mode.`,
+        suggestion: `Use poll ID 1 for demo mode or initialize poll ${pollId} using the Anchor program.`,
+      },
+      { status: 404, headers: ACTIONS_CORS_HEADERS }
     );
   }
 }
 
-// Handle demo voting for poll ID 1 when no on-chain poll exists
+// Enhanced demo vote handler for any poll ID
 function handleDemoVote(
-  plusVoteCandidates: string[], 
+  pollId: number,
+  plusVoteCandidates: string[],
   minusVoteCandidates: string[]
 ): Response {
   const sumPlus = plusVoteCandidates.length;
   const sumMinus = minusVoteCandidates.length;
 
-  // Demo constraints: 2 plus, 1 minus max
-  if (sumPlus > 2) {
+  // Use different constraints based on poll ID or default to 2/1
+  const constraints = {
+    1: { maxPlus: 2, maxMinus: 1 },
+    2: { maxPlus: 3, maxMinus: 1 },
+    default: { maxPlus: 2, maxMinus: 1 },
+  } as const;
+
+  const { maxPlus, maxMinus } =
+    (constraints as any)[pollId] || constraints.default;
+
+  // Validate constraints
+  if (sumPlus > maxPlus) {
     return Response.json(
-      { error: "Too many positive votes (max 2)" },
+      { error: `Too many positive votes (max ${maxPlus})` },
       { status: 400, headers: ACTIONS_CORS_HEADERS }
     );
   }
 
-  if (sumMinus > 1) {
+  if (sumMinus > maxMinus) {
     return Response.json(
-      { error: "Too many negative votes (max 1)" },
+      { error: `Too many negative votes (max ${maxMinus})` },
       { status: 400, headers: ACTIONS_CORS_HEADERS }
     );
   }
@@ -462,22 +490,16 @@ function handleDemoVote(
     );
   }
 
-  if (sumPlus + sumMinus > 3) {
-    return Response.json(
-      { error: "Total votes must be 3 or less" },
-      { status: 400, headers: ACTIONS_CORS_HEADERS }
-    );
-  }
-
-  // In demo mode, just return success
   return Response.json(
-    { 
-      message: "Demo vote recorded successfully! No blockchain transaction required.",
+    {
+      message: `Demo vote recorded for poll ${pollId}! No blockchain transaction required.`,
       mode: "demo",
+      pollId,
       votes: {
         plus: plusVoteCandidates,
         minus: minusVoteCandidates,
-      }
+      },
+      note: `Poll ${pollId} is not initialized on-chain. This is a simulation.`,
     },
     { headers: ACTIONS_CORS_HEADERS }
   );

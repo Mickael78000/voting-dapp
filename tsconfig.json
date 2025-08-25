@@ -11,8 +11,8 @@
       "es2015",
       "dom"
     ],
-    "module": "commonjs",
-    "target": "es6",
+    "module": "es2022",
+    "target": "es2017",
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "allowJs": true,

@@ -8,7 +8,7 @@ import toast, { Toaster } from 'react-hot-toast'
 
 import { AccountChecker } from '../account/account-ui'
 import { ClusterChecker, ClusterUiSelect, ExplorerLink } from '../cluster/cluster-ui'
-import { WalletButton } from '../solana/solana-provider'
+import { ClientOnlyWalletButton } from '../solana/solana-provider'
 
 export function UiLayout({ children, links }: { children: ReactNode; links: { label: string; path: string }[] }) {
   const pathname = usePathname()
@@ -33,7 +33,7 @@ export function UiLayout({ children, links }: { children: ReactNode; links: { la
           </Link>
         </div>
         <div className="navbar-end gap-2">
-          <WalletButton />
+          <ClientOnlyWalletButton />
           <ClusterUiSelect />
         </div>
       </div>
