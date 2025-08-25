@@ -1,141 +1,279 @@
-'use client'
+import React, { useState, useEffect, useMemo } from 'react'
+import { useWallet, useConnection } from '@solana/wallet-adapter-react'
+import { WalletMultiButton } from '@solana/wallet-adapter-react-ui'
+import { PublicKey, SystemProgram } from '@solana/web3.js'
+import * as anchor from '@coral-xyz/anchor'
+import { Program, AnchorProvider, BN } from '@coral-xyz/anchor'
 
-import { useState, useEffect } from 'react'
-import { useWallet } from '@solana/wallet-adapter-react'
-import { WalletButton } from '../solana/solana-provider'
+// Import the IDL - you'll need to generate this from your Anchor program
+import VotingdappIDL from '../../../anchor/target/idl/votingdapp.json'
+import { Votingdapp } from '../../../anchor/target/types/votingdapp' // Generated types
+
+// Program ID from lib.rs
+const PROGRAM_ID = new PublicKey('HaV1HXC62zmRYUGDo8XT4kbPY7EMfwFkMZcwjKCF7gxx')
 
 interface Candidate {
-  publicKey: string
+  publicKey: PublicKey
   name: string
+  plusVotes: number
+  minusVotes: number
 }
 
 interface Poll {
   id: number
-  name: string
+  description: string
   plusVotesAllowed: number
   minusVotesAllowed: number
-  candidates: Candidate[]
+  candidateCount: number
+  winners: number
+  pollStart: number
+  pollEnd: number
 }
 
 interface VoteAllocation {
-  candidate: string
+  candidate: PublicKey
   votes: number
 }
 
+interface Topic {
+  name: string
+  candidates: string[]
+}
+
+const TOPICS: Topic[] = [
+  { name: 'Education', candidates: ['Alice - Education', 'Bob - Education'] },
+  { name: 'Security', candidates: ['Alice - Security', 'Bob - Security'] },
+  { name: 'Healthcare', candidates: ['Alice - Healthcare', 'Bob - Healthcare'] },
+  { name: 'Defense', candidates: ['Alice - Defense', 'Bob - Defense'] },
+  { name: 'Taxes', candidates: ['Alice - Taxes', 'Bob - Taxes'] },
+]
+
 export default function D21VotingUI() {
-  const { publicKey, connect, disconnect, connected, connecting } = useWallet()
+  const { publicKey, connected, connecting } = useWallet()
+  const { connection } = useConnection()
+  
+  // State management
   const [poll, setPoll] = useState<Poll | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [plusVotes, setPlusVotes] = useState<string[]>([])
-  const [minusVotes, setMinusVotes] = useState<string[]>([])
-  const [submitting, setSubmitting] = useState(false)
+  const [candidates, setCandidates] = useState<Candidate[]>([])
+  const [plusVotes, setPlusVotes] = useState<PublicKey[]>([])
+  const [minusVotes, setMinusVotes] = useState<PublicKey[]>([])
   const [error, setError] = useState<string | null>(null)
   const [success, setSuccess] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [hasVoted, setHasVoted] = useState(false)
 
-  // Derived limits
-  const totalAllowed = (poll?.plusVotesAllowed || 0) + (poll?.minusVotesAllowed || 0)
+  // Create program instance
+  const program = useMemo(() => {
+    if (!publicKey || !connected) return null
+    
+    const provider = new AnchorProvider(
+      connection,
+      (window as any).solana,
+      AnchorProvider.defaultOptions()
+    )
+    
+    return new Program(VotingdappIDL as any, provider) as Program<Votingdapp>
+  }, [connection, publicKey, connected])
 
+  // Helper function to get poll PDA
+  const getPollPDA = (pollId: number) => {
+    const pollIdBytes = Buffer.alloc(4)
+    pollIdBytes.writeUInt32LE(pollId, 0)
+    
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from('poll'), pollIdBytes],
+      PROGRAM_ID
+    )[0]
+  }
+
+  // Helper function to get candidate PDA
+  const getCandidatePDA = (pollId: number, candidateName: string) => {
+    const pollIdBytes = Buffer.alloc(4)
+    pollIdBytes.writeUInt32LE(pollId, 0)
+    
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from('cand'), pollIdBytes, Buffer.from(candidateName)],
+      PROGRAM_ID
+    )[0]
+  }
+
+  // Helper function to get voter record PDA
+  const getVoterRecordPDA = (pollId: number, voterKey: PublicKey) => {
+    const pollIdBytes = Buffer.alloc(4)
+    pollIdBytes.writeUInt32LE(pollId, 0)
+    
+    return PublicKey.findProgramAddressSync(
+      [Buffer.from('voter'), voterKey.toBuffer(), pollIdBytes],
+      PROGRAM_ID
+    )[0]
+  }
+
+  // Load poll and candidates data
   useEffect(() => {
-    async function fetchPoll() {
+    if (!program) return
+
+    const loadPollData = async () => {
       try {
-        // Fetch the action response from /api/vote
-        const response = await fetch(`/api/vote`)
-        if (!response.ok) {
-          throw new Error('Failed to fetch poll data')
-        }
-        const data: any = await response.json()
-
-        // Parse pollId from action href like /api/vote?pollId=123
-        const href: string | undefined = data?.links?.actions?.[0]?.href
-        const queryString = href && href.includes('?') ? href.substring(href.indexOf('?') + 1) : ''
-        const params = new URLSearchParams(queryString)
-        const parsedPollId = Number(params.get('pollId'))
-
-        // Parse limits from description text "Cast up to X positive and Y negative votes."
-        const desc: string = data?.description || ''
-        const match = desc.match(/up to\s+(\d+)\s+positive\s+and\s+(\d+)\s+negative/i)
-        const plus = match ? Number(match[1]) : 0
-        const minus = match ? Number(match[2]) : 0
-
-        const candidates: Candidate[] = (data?.candidates || []).map((c: any) => ({
-          publicKey: String(c.publicKey),
-          name: String(c.name),
-        }))
-
-        if (!parsedPollId || Number.isNaN(parsedPollId) || candidates.length === 0) {
-          throw new Error('No active poll found')
-        }
-
-        const uiPoll: Poll = {
-          id: parsedPollId,
-          name: data?.title || `Poll ${parsedPollId}`,
-          plusVotesAllowed: plus,
-          minusVotesAllowed: minus,
-          candidates,
-        }
-
-        setPoll(uiPoll)
+        setLoading(true)
         setError(null)
-      } catch (err: any) {
-        setError(`Failed to load poll: ${err.message}`)
-        console.error(err)
+
+        // Try to load poll with ID 1
+        const pollPDA = getPollPDA(1)
+        
+        try {
+          const pollAccount = await program.account.poll.fetch(pollPDA)
+          const pollData: Poll = {
+            id: pollAccount.pollId,
+            description: pollAccount.pollDescription,
+            plusVotesAllowed: pollAccount.plusVotesAllowed,
+            minusVotesAllowed: pollAccount.minusVotesAllowed,
+            candidateCount: pollAccount.candidateCount.toNumber(),
+            winners: pollAccount.winners,
+            pollStart: pollAccount.pollStart.toNumber(),
+            pollEnd: pollAccount.pollEnd.toNumber(),
+          }
+          setPoll(pollData)
+
+          // Load candidates for this poll
+          const allCandidates = await program.account.candidate.all()
+          const pollCandidates = allCandidates
+            .filter(candidateAccount => {
+              // Verify this candidate belongs to our poll by checking PDA derivation
+              const nameBytes = Buffer.from(candidateAccount.account.name)
+              const nameStr = nameBytes.toString().replace(/\0/g, '')
+              const expectedPDA = getCandidatePDA(1, nameStr)
+              return expectedPDA.equals(candidateAccount.publicKey)
+            })
+            .map(candidateAccount => ({
+              publicKey: candidateAccount.publicKey,
+              name: Buffer.from(candidateAccount.account.name).toString().replace(/\0/g, ''),
+              plusVotes: candidateAccount.account.plusVotes.toNumber(),
+              minusVotes: candidateAccount.account.minusVotes.toNumber(),
+            }))
+
+          setCandidates(pollCandidates)
+
+          // Check if user has already voted
+          if (publicKey) {
+            const voterRecordPDA = getVoterRecordPDA(1, publicKey)
+            try {
+              const voterRecord = await program.account.voterRecord.fetch(voterRecordPDA)
+              setHasVoted(voterRecord.hasVoted)
+            } catch {
+              setHasVoted(false)
+            }
+          }
+
+        } catch (pollError) {
+          // Poll doesn't exist, create demo data
+          console.log('Poll not found on-chain, using demo data')
+          setPoll({
+            id: 1,
+            description: 'Alice vs Bob — Public Policy Preferences',
+            plusVotesAllowed: 2,
+            minusVotesAllowed: 1,
+            candidateCount: 10,
+            winners: 5,
+            pollStart: Date.now() / 1000,
+            pollEnd: (Date.now() / 1000) + 86400, // 24 hours from now
+          })
+
+          // Create demo candidates
+          const demoCandidates: Candidate[] = [
+            'Alice - Education', 'Alice - Security', 'Alice - Healthcare', 
+            'Alice - Defense', 'Alice - Taxes',
+            'Bob - Education', 'Bob - Security', 'Bob - Healthcare', 
+            'Bob - Defense', 'Bob - Taxes'
+          ].map(name => ({
+            publicKey: getCandidatePDA(1, name),
+            name,
+            plusVotes: 0,
+            minusVotes: 0,
+          }))
+          
+          setCandidates(demoCandidates)
+        }
+
+      } catch (err) {
+        console.error('Error loading poll data:', err)
+        setError('Failed to load poll data')
       } finally {
         setLoading(false)
       }
     }
 
-    fetchPoll()
-  }, [])
+    loadPollData()
+  }, [program, publicKey])
 
-  const handlePlusVote = (candidateKey: string) => {
+  // Vote handling functions
+  const handlePlusVote = (candidateKey: PublicKey) => {
     setError(null)
-    if (plusVotes.includes(candidateKey)) {
-      setPlusVotes(plusVotes.filter(key => key !== candidateKey))
+    
+    if (plusVotes.some(key => key.equals(candidateKey))) {
+      setPlusVotes(plusVotes.filter(key => !key.equals(candidateKey)))
     } else {
       if (plusVotes.length >= (poll?.plusVotesAllowed || 0)) {
         setError(`You can only cast ${poll?.plusVotesAllowed} positive votes`)
         return
       }
-      if (plusVotes.length + minusVotes.length >= totalAllowed) {
-        setError(`Maximum ${totalAllowed} total votes allowed`)
+      
+      const totalVotes = plusVotes.length + minusVotes.length + 1
+      if (totalVotes >= (poll?.candidateCount || 0)) {
+        setError(`Maximum ${poll?.candidateCount - 1} total votes allowed`)
         return
       }
+      
       setPlusVotes([...plusVotes, candidateKey])
     }
   }
 
-  const handleMinusVote = (candidateKey: string) => {
+  const handleMinusVote = (candidateKey: PublicKey) => {
     setError(null)
-    if (minusVotes.includes(candidateKey)) {
-      setMinusVotes(minusVotes.filter(key => key !== candidateKey))
+    
+    if (minusVotes.some(key => key.equals(candidateKey))) {
+      setMinusVotes(minusVotes.filter(key => !key.equals(candidateKey)))
     } else {
-      if (plusVotes.length < 2) {
-        setError('At least 2 positive votes required to cast negative votes')
-        return
-      }
       if (minusVotes.length >= (poll?.minusVotesAllowed || 0)) {
         setError(`You can only cast ${poll?.minusVotesAllowed} negative votes`)
         return
       }
-      if (plusVotes.length + minusVotes.length >= totalAllowed) {
-        setError(`Maximum ${totalAllowed} total votes allowed`)
+      
+      const totalVotes = plusVotes.length + minusVotes.length + 1
+      if (totalVotes >= (poll?.candidateCount || 0)) {
+        setError(`Maximum ${poll?.candidateCount - 1} total votes allowed`)
         return
       }
+      
       setMinusVotes([...minusVotes, candidateKey])
     }
   }
 
+  // Submit vote to blockchain
   const submitVote = async () => {
-    if (!publicKey) {
-      setError('Wallet not connected')
+    if (!publicKey || !program || !poll) {
+      setError('Wallet not connected or program not initialized')
       return
     }
+
+    // Validation
     if (plusVotes.length === 0) {
       setError('You must cast at least one positive vote')
       return
     }
+
     if (minusVotes.length > 0 && plusVotes.length < 2) {
       setError('At least 2 positive votes required to cast negative votes')
+      return
+    }
+
+    if (plusVotes.length > poll.plusVotesAllowed) {
+      setError(`Too many positive votes (max ${poll.plusVotesAllowed})`)
+      return
+    }
+
+    if (minusVotes.length > poll.minusVotesAllowed) {
+      setError(`Too many negative votes (max ${poll.minusVotesAllowed})`)
       return
     }
 
@@ -144,361 +282,348 @@ export default function D21VotingUI() {
     setSuccess(null)
 
     try {
+      // Create vote allocations
       const plusAllocations: VoteAllocation[] = plusVotes.map(candidate => ({
         candidate,
-        votes: 1
+        votes: 1,
       }))
 
       const minusAllocations: VoteAllocation[] = minusVotes.map(candidate => ({
         candidate,
-        votes: 1
+        votes: 1,
       }))
 
-      const response = await fetch(`/api/vote?pollId=${poll?.id || 1}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          account: publicKey.toBase58(),
+      // Get required PDAs
+      const pollPDA = getPollPDA(poll.id)
+      const voterRecordPDA = getVoterRecordPDA(poll.id, publicKey)
+
+      // Prepare remaining accounts (all candidate PDAs)
+      const allVotedCandidates = [...plusVotes, ...minusVotes]
+      const remainingAccounts = allVotedCandidates.map(candidateKey => ({
+        pubkey: candidateKey,
+        isWritable: true,
+        isSigner: false,
+      }))
+
+      // Create and send transaction
+      const tx = await program.methods
+        .vote(
+          poll.id,
           plusAllocations,
-          minusAllocations,
-        }),
-      })
+          minusAllocations
+        )
+        .accounts({
+          signer: publicKey,
+          poll: pollPDA,
+          voterRecord: voterRecordPDA,
+          systemProgram: SystemProgram.programId,
+        } as any)
+        .remainingAccounts(remainingAccounts)
+        .rpc()
 
-      if (!response.ok) {
-        const errorText = await response.text()
-        throw new Error(errorText || 'Failed to submit vote')
-      }
-
-      const result = await response.json()
-      
-      if (result.mode === 'demo') {
-        setSuccess('Demo vote submitted successfully! (No blockchain transaction required)')
-      } else {
-        setSuccess('Vote submitted! Please confirm the transaction in your wallet.')
-      }
+      setSuccess(`Vote submitted successfully! Transaction: ${tx}`)
+      setHasVoted(true)
       
       // Clear votes after successful submission
       setPlusVotes([])
       setMinusVotes([])
+
+      // Refresh poll data to show updated vote counts
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000)
+
     } catch (err: any) {
-      setError(`Failed to submit vote: ${err.message}`)
+      console.error('Vote submission error:', err)
+      
+      // Handle specific Anchor errors
+      if (err.message?.includes('AlreadyVoted')) {
+        setError('You have already voted in this poll')
+        setHasVoted(true)
+      } else if (err.message?.includes('TooManyPlus')) {
+        setError(`Too many positive votes. Maximum allowed: ${poll.plusVotesAllowed}`)
+      } else if (err.message?.includes('TooManyMinus')) {
+        setError(`Too many negative votes. Maximum allowed: ${poll.minusVotesAllowed}`)
+      } else if (err.message?.includes('MinusRequiresTwoPlus')) {
+        setError('At least 2 positive votes required to cast negative votes')
+      } else if (err.message?.includes('InvalidTotal')) {
+        setError('Total votes exceed the allowed limit')
+      } else if (err.message?.includes('User rejected the request')) {
+        setError('Transaction was cancelled')
+      } else {
+        setError(`Failed to submit vote: ${err.message || 'Unknown error'}`)
+      }
     } finally {
       setSubmitting(false)
     }
   }
 
-  const clearVotes = () => {
-    setPlusVotes([])
-    setMinusVotes([])
-    setError(null)
-    setSuccess(null)
-  }
-
-  // Organize candidates by topic for display
-  const canonicalTopics = ['Education', 'Security', 'Healthcare', 'Defense', 'Taxes']
-  
-  // Helper functions to identify Alice/Bob candidates
-  const isAlice = (name: string) => /\balice\b/i.test(name)
-  const isBob = (name: string) => /\bbob\b/i.test(name)
-
-  // Parse proposer/topic from candidate names
-  type Parsed = { proposer: 'Alice' | 'Bob' | null; topic: string | null; c: Candidate }
-
-  const parsed: Parsed[] = (poll?.candidates || []).map(c => {
-    const raw = c.name.toLowerCase()
-    let proposer: 'Alice' | 'Bob' | null = null
-    
-    if (/alice/i.test(raw)) proposer = 'Alice'
-    else if (/bob/i.test(raw)) proposer = 'Bob'
-
-    // Find topic match
-    let topic: string | null = null
-    for (const t of canonicalTopics) {
-      if (raw.includes(t.toLowerCase())) {
-        topic = t
-        break
-      }
-    }
-
-    return { proposer, topic, c }
-  })
-
-  const topicRows = canonicalTopics.map(topic => {
-    const alice = parsed.find(p => p.proposer === 'Alice' && p.topic === topic)?.c
-    const bob = parsed.find(p => p.proposer === 'Bob' && p.topic === topic)?.c
-    return { topic, alice, bob }
-  })
-
-  const getCandidateName = (candidateKey: string) => {
-    const candidate = poll?.candidates.find(c => c.publicKey === candidateKey)
-    return candidate?.name || candidateKey
-  }
-
-  const getTopicIcon = (topic: string) => {
-    const icons: Record<string, string> = {
-      'Education': '🎓',
-      'Security': '🛡️',
-      'Healthcare': '🏥',
-      'Defense': '⚔️',
-      'Taxes': '💰'
-    }
-    return icons[topic] || '📋'
-  }
-
-  const getTopicDescription = (topic: string, proposer: 'Alice' | 'Bob') => {
+  const getTopicDescription = (topic: string, proposer: string) => {
     const descriptions: Record<string, Record<string, string>> = {
-      'Education': {
-        'Alice': 'Progressive education reform with technology integration and increased funding for public schools.',
-        'Bob': 'Traditional education values with focus on core subjects and standardized testing improvements.'
+      Education: {
+        Alice: "Increase funding for public schools and teacher training programs",
+        Bob: "Promote school choice and charter school expansion"
       },
-      'Security': {
-        'Alice': 'Community-based policing with focus on social programs and crime prevention.',
-        'Bob': 'Enhanced law enforcement with increased funding for police and stricter penalties.'
+      Security: {
+        Alice: "Focus on community policing and crime prevention programs",
+        Bob: "Increase law enforcement funding and surveillance systems"
       },
-      'Healthcare': {
-        'Alice': 'Universal healthcare system with expanded public options and preventive care focus.',
-        'Bob': 'Market-based healthcare solutions with private sector competition and choice.'
+      Healthcare: {
+        Alice: "Expand public healthcare coverage and lower prescription costs",
+        Bob: "Promote private healthcare competition and medical savings accounts"
       },
-      'Defense': {
-        'Alice': 'Diplomatic approach with reduced military spending and increased peacekeeping efforts.',
-        'Bob': 'Strong defense policy with enhanced military capabilities and strategic alliances.'
+      Defense: {
+        Alice: "Reduce military spending and focus on diplomacy",
+        Bob: "Strengthen defense capabilities and military readiness"
       },
-      'Taxes': {
-        'Alice': 'Progressive taxation with higher rates for wealthy and corporate tax reforms.',
-        'Bob': 'Lower tax rates across the board with simplified tax code and business incentives.'
+      Taxes: {
+        Alice: "Increase taxes on wealthy individuals and corporations",
+        Bob: "Lower taxes across all income brackets and simplify tax code"
       }
     }
-    return descriptions[topic]?.[proposer] || `${proposer}'s ${topic} program`
+    
+    return descriptions[topic]?.[proposer] || `${proposer}'s policy on ${topic}`
   }
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900">
-        <div className="text-center text-white">
-          <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-white mx-auto mb-4"></div>
-          <p className="text-xl">Loading voting interface...</p>
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+          <p className="text-gray-600">Loading voting interface...</p>
+        </div>
+      </div>
+    )
+  }
+
+  if (!connected) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 flex items-center justify-center">
+        <div className="bg-white p-8 rounded-lg shadow-lg text-center max-w-md mx-auto">
+          <h1 className="text-2xl font-bold text-gray-800 mb-4">
+            D21 Voting System
+          </h1>
+          <p className="text-gray-600 mb-6">
+            Connect your Solana wallet to participate in the voting process
+          </p>
+          <WalletMultiButton />
         </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-900 via-blue-900 to-indigo-900 text-white font-inter">
-      <div className="container max-w-6xl mx-auto p-6">
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 py-8">
+      <div className="max-w-4xl mx-auto p-6">
         {/* Header */}
-        <div className="text-center mb-8">
-          <h1 className="text-5xl font-bold mb-4 bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent animate-pulse">
-            🗳️ D21 Voting dApp
-          </h1>
-          <p className="text-xl text-gray-300 mb-6">
-            Choose Your Policy Preferences: Alice vs Bob
-          </p>
-          
-          {/* Voting Rules */}
-          <div className="backdrop-filter backdrop-blur-lg bg-white/10 border border-white/20 rounded-2xl p-6 mb-8 max-w-3xl mx-auto">
-            <h2 className="text-2xl font-semibold mb-4">Voting Rules</h2>
-            <div className="grid md:grid-cols-3 gap-4 text-center">
-              <div className="bg-green-500/20 rounded-xl p-4">
-                <div className="text-3xl mb-2">✅</div>
-                <div className="font-medium">Up to {poll?.plusVotesAllowed} Positive Votes</div>
-                <div className="text-green-200 text-sm">Support your favorites</div>
-              </div>
-              <div className="bg-red-500/20 rounded-xl p-4">
-                <div className="text-3xl mb-2">❌</div>
-                <div className="font-medium">Up to {poll?.minusVotesAllowed} Negative Vote</div>
-                <div className="text-red-200 text-sm">Requires 2 positive votes first</div>
-              </div>
-              <div className="bg-blue-500/20 rounded-xl p-4">
-                <div className="text-3xl mb-2">🎯</div>
-                <div className="font-medium">Max {totalAllowed} Total Votes</div>
-                <div className="text-blue-200 text-sm">Strategic voting encouraged</div>
+        <div className="bg-white rounded-lg shadow-lg p-6 mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800 mb-2">
+                Choose Your Policy Preferences: Alice vs Bob
+              </h1>
+              <p className="text-gray-600">
+                {poll?.description || 'D21 Voting System'}
+              </p>
+            </div>
+            <div className="text-right">
+              <div className="text-sm text-gray-500 mb-2">Connected as</div>
+              <div className="text-sm font-mono bg-gray-100 px-3 py-1 rounded">
+                {publicKey?.toBase58().slice(0, 4)}...{publicKey?.toBase58().slice(-4)}
               </div>
             </div>
           </div>
+
+          {/* Voting Rules */}
+          <div className="bg-blue-50 p-4 rounded-lg">
+            <h3 className="font-semibold text-blue-800 mb-2">Voting Rules (D21 System):</h3>
+            <ul className="text-blue-700 text-sm space-y-1">
+              <li>• Cast up to {poll?.plusVotesAllowed || 2} positive votes for candidates you support</li>
+              <li>• Cast up to {poll?.minusVotesAllowed || 1} negative vote against candidates you oppose</li>
+              <li>• Negative votes require at least 2 positive votes</li>
+              <li>• Your vote will be submitted to the Solana blockchain</li>
+            </ul>
+          </div>
         </div>
 
-        {/* Wallet Connection */}
-        <div className="backdrop-filter backdrop-blur-lg bg-white/10 border border-white/20 rounded-2xl p-8 mb-8 text-center">
-          {!connected ? (
-            <div>
-              <div className="text-6xl mb-4">🔐</div>
-              <h3 className="text-2xl font-semibold mb-4">Connect Your Wallet to Vote</h3>
-              <p className="text-gray-300 mb-6">Connect your Solana wallet to participate in the voting process</p>
-              <WalletButton className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white font-bold py-4 px-8 rounded-xl transition-all duration-300 transform hover:scale-105">
-                {connecting ? 'Connecting...' : 'Connect Wallet'}
-              </WalletButton>
-            </div>
-          ) : (
-            <div>
-              <div className="text-6xl mb-4">✅</div>
-              <h3 className="text-2xl font-semibold mb-2">Wallet Connected</h3>
-              <p className="text-gray-300 font-mono text-sm mb-4">
-                {publicKey?.toBase58().slice(0, 4)}...{publicKey?.toBase58().slice(-4)}
-              </p>
-              <button
-                onClick={disconnect}
-                className="bg-gray-500 hover:bg-gray-600 text-white font-medium py-2 px-6 rounded-lg transition-all duration-300"
-              >
-                Disconnect
-              </button>
-            </div>
-          )}
-        </div>
-
-        {/* Voting Interface */}
-        {connected && poll && (
-          <>
-            {/* Vote Summary */}
-            <div className="backdrop-filter backdrop-blur-lg bg-white/10 border border-white/20 rounded-2xl p-6 mb-8">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="text-xl font-semibold">Your Votes</h3>
-                <div className="flex space-x-4">
-                  <span className="text-green-400 font-medium">
-                    ➕ {plusVotes.length}/{poll.plusVotesAllowed}
-                  </span>
-                  <span className="text-red-400 font-medium">
-                    ➖ {minusVotes.length}/{poll.minusVotesAllowed}
-                  </span>
-                  <span className="text-blue-400 font-medium">
-                    Total: {plusVotes.length + minusVotes.length}/{totalAllowed}
-                  </span>
-                </div>
-              </div>
-              
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="bg-green-500/10 rounded-xl p-4">
-                  <h4 className="text-green-400 font-medium mb-2">Positive Votes</h4>
-                  <div className="text-green-200 text-sm min-h-[40px]">
-                    {plusVotes.length === 0 ? (
-                      <em>No positive votes selected</em>
-                    ) : (
-                      plusVotes.map(vote => (
-                        <div key={vote} className="bg-green-600/20 rounded px-2 py-1 mb-1">
-                          {getCandidateName(vote)}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-                <div className="bg-red-500/10 rounded-xl p-4">
-                  <h4 className="text-red-400 font-medium mb-2">Negative Votes</h4>
-                  <div className="text-red-200 text-sm min-h-[40px]">
-                    {minusVotes.length === 0 ? (
-                      <em>No negative votes selected</em>
-                    ) : (
-                      minusVotes.map(vote => (
-                        <div key={vote} className="bg-red-600/20 rounded px-2 py-1 mb-1">
-                          {getCandidateName(vote)}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
+        {/* Voting Status */}
+        {hasVoted && (
+          <div className="bg-green-50 border border-green-200 p-4 rounded-lg mb-6">
+            <div className="flex items-center">
+              <div className="text-green-600 mr-3">✅</div>
+              <div>
+                <h3 className="font-semibold text-green-800">Vote Recorded</h3>
+                <p className="text-green-700 text-sm">
+                  You have already participated in this poll. Thank you for voting!
+                </p>
               </div>
             </div>
-
-            {/* Topics Grid */}
-            <div className="grid gap-6 mb-8">
-              {topicRows.map(({ topic, alice, bob }) => (
-                <div key={topic} className="backdrop-filter backdrop-blur-lg bg-white/10 border border-white/20 rounded-2xl p-6 hover:bg-white/15 transition-all duration-300 hover:scale-[1.02]">
-                  <div className="text-center mb-6">
-                    <div className="text-5xl mb-4">{getTopicIcon(topic)}</div>
-                    <h3 className="text-2xl font-bold">{topic}</h3>
-                  </div>
-                  <div className="grid md:grid-cols-2 gap-6">
-                    {[
-                      { candidate: alice, proposer: 'Alice' as const, color: 'blue' },
-                      { candidate: bob, proposer: 'Bob' as const, color: 'purple' }
-                    ].map(({ candidate, proposer, color }) => (
-                      <div key={proposer} className={`bg-${color}-500/10 rounded-xl p-6 border-2 border-${color}-500/20`}>
-                        <h4 className={`text-xl font-semibold text-${color}-300 mb-3`}>
-                          {proposer}'s Program
-                        </h4>
-                        <p className="text-gray-300 text-sm mb-4">
-                          {getTopicDescription(topic, proposer)}
-                        </p>
-                        {candidate ? (
-                          <div className="flex space-x-2">
-                            <button
-                              onClick={() => handlePlusVote(candidate.publicKey)}
-                              disabled={!plusVotes.includes(candidate.publicKey) && (plusVotes.length >= poll.plusVotesAllowed || plusVotes.length + minusVotes.length >= totalAllowed)}
-                              className={`flex-1 py-3 px-4 rounded-lg font-medium text-white transition-all duration-300 ${
-                                plusVotes.includes(candidate.publicKey)
-                                  ? 'bg-green-600 shadow-lg shadow-green-500/40'
-                                  : 'bg-green-500 hover:bg-green-600 hover:scale-105'
-                              } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
-                            >
-                              👍 Support
-                            </button>
-                            <button
-                              onClick={() => handleMinusVote(candidate.publicKey)}
-                              disabled={!minusVotes.includes(candidate.publicKey) && (plusVotes.length < 2 || minusVotes.length >= poll.minusVotesAllowed || plusVotes.length + minusVotes.length >= totalAllowed)}
-                              className={`flex-1 py-3 px-4 rounded-lg font-medium text-white transition-all duration-300 ${
-                                minusVotes.includes(candidate.publicKey)
-                                  ? 'bg-red-600 shadow-lg shadow-red-500/40'
-                                  : 'bg-red-500 hover:bg-red-600 hover:scale-105'
-                              } disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:scale-100`}
-                            >
-                              👎 Oppose
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="text-gray-400 text-center py-3">
-                            —
-                          </div>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            {/* Messages */}
-            {error && (
-              <div className="bg-red-500/20 border border-red-500/50 rounded-xl p-4 mb-6">
-                <div className="text-red-400 font-medium">{error}</div>
-              </div>
-            )}
-            
-            {success && (
-              <div className="bg-green-500/20 border border-green-500/50 rounded-xl p-4 mb-6">
-                <div className="text-green-400 font-medium">{success}</div>
-              </div>
-            )}
-
-            {/* Submit Section */}
-            <div className="backdrop-filter backdrop-blur-lg bg-white/10 border border-white/20 rounded-2xl p-8 text-center">
-              <div className="flex justify-center space-x-4 mb-6">
-                <button
-                  onClick={clearVotes}
-                  className="bg-gray-500 hover:bg-gray-600 text-white font-medium py-3 px-6 rounded-lg transition-all duration-300"
-                  disabled={submitting}
-                >
-                  Clear All Votes
-                </button>
-                <button
-                  onClick={submitVote}
-                  className="bg-gradient-to-r from-green-500 to-blue-500 hover:from-green-600 hover:to-blue-600 text-white font-bold py-3 px-8 rounded-lg transition-all duration-300 transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                  disabled={submitting || plusVotes.length === 0}
-                >
-                  {submitting ? 'Submitting...' : 'Submit Votes'}
-                </button>
-              </div>
-              
-              <p className="text-gray-400 text-sm">
-                Your vote will be submitted to the Solana blockchain. You'll need to approve the transaction in your wallet.
-              </p>
-            </div>
-          </>
+          </div>
         )}
 
-        {/* No wallet connected message */}
-        {!connected && (
-          <div className="text-center text-gray-400 mt-8">
-            <p>Please connect your wallet to participate in voting.</p>
+        {/* Error Display */}
+        {error && (
+          <div className="bg-red-50 border border-red-200 p-4 rounded-lg mb-6">
+            <div className="flex items-center">
+              <div className="text-red-600 mr-3">⚠️</div>
+              <div>
+                <h3 className="font-semibold text-red-800">Error</h3>
+                <p className="text-red-700 text-sm">{error}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Success Display */}
+        {success && (
+          <div className="bg-green-50 border border-green-200 p-4 rounded-lg mb-6">
+            <div className="flex items-center">
+              <div className="text-green-600 mr-3">✅</div>
+              <div>
+                <h3 className="font-semibold text-green-800">Success</h3>
+                <p className="text-green-700 text-sm">{success}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Candidates Grid */}
+        <div className="grid gap-4 mb-6">
+          {TOPICS.map(topic => (
+            <div key={topic.name} className="bg-white rounded-lg shadow-lg p-6">
+              <h2 className="text-xl font-semibold text-gray-800 mb-4 border-b pb-2">
+                {topic.name} Policy
+              </h2>
+              
+              <div className="grid md:grid-cols-2 gap-4">
+                {topic.candidates.map(candidateName => {
+                  const candidate = candidates.find(c => c.name === candidateName)
+                  if (!candidate) return null
+
+                  const topic = candidateName.split(' - ')[1]
+                  const proposer = candidateName.split(' - ')[0]
+                  const isPlusVoted = plusVotes.some(key => key.equals(candidate.publicKey))
+                  const isMinusVoted = minusVotes.some(key => key.equals(candidate.publicKey))
+
+                  return (
+                    <div
+                      key={candidate.publicKey.toString()}
+                      className={`p-4 rounded-lg border-2 transition-all duration-200 ${
+                        isPlusVoted
+                          ? 'border-green-500 bg-green-50'
+                          : isMinusVoted
+                          ? 'border-red-500 bg-red-50'
+                          : 'border-gray-200 bg-gray-50 hover:bg-gray-100'
+                      }`}
+                    >
+                      <div className="flex justify-between items-start mb-3">
+                        <div>
+                          <h3 className="font-semibold text-gray-800">{candidate.name}</h3>
+                          <p className="text-sm text-gray-600 mt-1">
+                            {getTopicDescription(topic, proposer)}
+                          </p>
+                        </div>
+                        <div className="text-right text-xs text-gray-500">
+                          <div>+{candidate.plusVotes}</div>
+                          <div>-{candidate.minusVotes}</div>
+                        </div>
+                      </div>
+                      
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => handlePlusVote(candidate.publicKey)}
+                          disabled={hasVoted || submitting}
+                          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                            isPlusVoted
+                              ? 'bg-green-600 text-white hover:bg-green-700'
+                              : 'bg-green-100 text-green-700 hover:bg-green-200'
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        >
+                          {isPlusVoted ? '✓ Positive' : '+ Positive'}
+                        </button>
+                        
+                        <button
+                          onClick={() => handleMinusVote(candidate.publicKey)}
+                          disabled={hasVoted || submitting}
+                          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+                            isMinusVoted
+                              ? 'bg-red-600 text-white hover:bg-red-700'
+                              : 'bg-red-100 text-red-700 hover:bg-red-200'
+                          } disabled:opacity-50 disabled:cursor-not-allowed`}
+                        >
+                          {isMinusVoted ? '✓ Negative' : '- Negative'}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Vote Summary and Submit */}
+        {(plusVotes.length > 0 || minusVotes.length > 0) && (
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">Your Vote Summary</h3>
+            
+            <div className="grid md:grid-cols-2 gap-4 mb-6">
+              <div>
+                <h4 className="font-medium text-green-700 mb-2">
+                  Positive Votes ({plusVotes.length}/{poll?.plusVotesAllowed || 0})
+                </h4>
+                <ul className="text-sm text-gray-600 space-y-1">
+                  {plusVotes.map(candidateKey => {
+                    const candidate = candidates.find(c => c.publicKey.equals(candidateKey))
+                    return (
+                      <li key={candidateKey.toString()}>
+                        • {candidate?.name || 'Unknown Candidate'}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+              
+              <div>
+                <h4 className="font-medium text-red-700 mb-2">
+                  Negative Votes ({minusVotes.length}/{poll?.minusVotesAllowed || 0})
+                </h4>
+                <ul className="text-sm text-gray-600 space-y-1">
+                  {minusVotes.map(candidateKey => {
+                    const candidate = candidates.find(c => c.publicKey.equals(candidateKey))
+                    return (
+                      <li key={candidateKey.toString()}>
+                        • {candidate?.name || 'Unknown Candidate'}
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <div className="text-sm text-gray-600">
+                <p>Your vote will be submitted to the Solana blockchain. You'll need to approve the transaction in your wallet.</p>
+              </div>
+              
+              <button
+                onClick={submitVote}
+                disabled={hasVoted || submitting || plusVotes.length === 0}
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium transition-colors"
+              >
+                {submitting ? 'Submitting...' : hasVoted ? 'Already Voted' : 'Submit Vote'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Connection Status */}
+        {!hasVoted && (plusVotes.length === 0 && minusVotes.length === 0) && (
+          <div className="bg-gray-50 p-6 rounded-lg text-center">
+            <p className="text-gray-600">
+              Please connect your wallet to participate in voting.
+            </p>
+            <WalletMultiButton className="mt-4" />
           </div>
         )}
       </div>
