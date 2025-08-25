@@ -11,8 +11,8 @@
       "es2015",
       "dom"
     ],
-    "module": "es2022",
-    "target": "es2017",
+    "module": "commonjs",
+    "target": "ES2020",
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "allowJs": true,
@@ -35,6 +35,8 @@
       "@project/*": ["anchor/src/*"],
       "@project/anchor": ["anchor/src/index.ts"],
       "@/*": ["src/*"],
+      "~/*": ["./*"],
+      "../votingdapp/anchor/target/types/votingdapp": ["../votingdapp/anchor/target/types/votingdapp"],
       "@solana/wallet-adapter-react": ["node_modules/@solana/wallet-adapter-react"],
       "tailwindcss/postcss": ["node_modules/tailwindcss"]
     }
@@ -43,8 +45,10 @@
     "next-env.d.ts",
     ".next/types/**/*.ts",
     "**/*.ts",
-    "**/*.tsx"
-  ],
+    "**/*.tsx", 
+    "scripts/initialize-poll.cjs",
+    "../votingdapp/anchor/target/types/votingdapp"
+, "scripts/initialize-poll.cjs"    ],
   "exclude": [
     "node_modules"
   ]
