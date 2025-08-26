@@ -171,7 +171,7 @@ pub struct InitializePoll<'info> {
     #[account(mut)]
     pub signer: Signer<'info>,
     #[account(
-        init,
+        init_if_needed,
         payer = signer,
         space = 8 + Poll::INIT_SPACE,
         seeds = [b"poll", &poll_id.to_le_bytes()],
@@ -194,7 +194,7 @@ pub struct InitializeCandidate<'info> {
     )]
     pub poll: Account<'info, Poll>,
     #[account(
-        init,
+        init_if_needed,
         payer = signer,
         space = 8 + Candidate::INIT_SPACE,
         seeds = [b"cand", &poll_id.to_le_bytes(), candidate_name.as_bytes()],

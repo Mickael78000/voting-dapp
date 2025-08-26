@@ -1,8 +1,12 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useWallet } from '@solana/wallet-adapter-react'
-import { useVoteGet, useVotePost, UICandidate, UIPoll } from './votingdapp-data-access'
+import { useConnection, useWallet } from '@solana/wallet-adapter-react'
+import { useVoteGet, useVotePost, UIPoll } from './votingdapp-data-access'
+import {
+  VersionedTransaction,
+  VersionedMessage
+} from '@solana/web3.js'
 
 interface D21VotingUIProps {
   pollId?: number
@@ -24,7 +28,8 @@ function getTopicDescription(name: string): string {
 }
 
 export default function D21VotingUI({ pollId = 1 }: D21VotingUIProps) {
-  const { publicKey } = useWallet()
+  const { connection } = useConnection()
+  const wallet = useWallet()
   const [selectedPlus, setSelectedPlus] = useState<string[]>([])
   const [selectedMinus, setSelectedMinus] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -33,10 +38,8 @@ export default function D21VotingUI({ pollId = 1 }: D21VotingUIProps) {
 
   const { data, isLoading, error: fetchError, refetch } = useVoteGet(pollId)
   const votePost = useVotePost()
-
   const poll: UIPoll | null = data?.poll || null
 
-  // Clear messages when poll changes
   useEffect(() => {
     setError(null)
     setSuccess(null)
@@ -44,60 +47,43 @@ export default function D21VotingUI({ pollId = 1 }: D21VotingUIProps) {
     setSelectedMinus([])
   }, [pollId])
 
-  // Handle candidate selection for positive votes
-  const handlePlusVote = (candidateKey: string) => {
-    setSelectedPlus(prev => {
-      if (prev.includes(candidateKey)) {
-        return prev.filter(key => key !== candidateKey)
-      }
-      
-      if (prev.length >= (poll?.plusVotesAllowed || 0)) {
-        setError(`You can only select up to ${poll?.plusVotesAllowed} positive votes`)
-        return prev
-      }
-      
-      setError(null)
-      return [...prev, candidateKey]
-    })
+  const handlePlusVote = (key: string) => {
+    setError(null)
+    setSelectedPlus(prev =>
+      prev.includes(key)
+        ? prev.filter(k => k !== key)
+        : prev.length < (poll?.plusVotesAllowed || 0)
+        ? [...prev, key]
+        : prev
+    )
   }
 
-  // Handle candidate selection for negative votes
-  const handleMinusVote = (candidateKey: string) => {
-    setSelectedMinus(prev => {
-      if (prev.includes(candidateKey)) {
-        return prev.filter(key => key !== candidateKey)
-      }
-      
-      if (prev.length >= (poll?.minusVotesAllowed || 0)) {
-        setError(`You can only select up to ${poll?.minusVotesAllowed} negative votes`)
-        return prev
-      }
-      
-      setError(null)
-      return [...prev, candidateKey]
-    })
+  const handleMinusVote = (key: string) => {
+    setError(null)
+    setSelectedMinus(prev =>
+      prev.includes(key)
+        ? prev.filter(k => k !== key)
+        : prev.length < (poll?.minusVotesAllowed || 0)
+        ? [...prev, key]
+        : prev
+    )
   }
 
-  // Submit votes
   const handleSubmit = async () => {
-    if (!publicKey) {
-      setError('Please connect your wallet to participate in voting')
+    if (!wallet.publicKey) {
+      setError('Please connect your wallet')
       return
     }
-
     if (!poll) {
       setError('Poll data not available')
       return
     }
-
-    // Validate vote requirements
     if (selectedPlus.length === 0) {
       setError('At least one positive vote is required')
       return
     }
-
     if (selectedMinus.length > 0 && selectedPlus.length < 2) {
-      setError('At least 2 positive votes required to cast negative votes')
+      setError('At least 2 positive votes required for negative votes')
       return
     }
 
@@ -105,27 +91,36 @@ export default function D21VotingUI({ pollId = 1 }: D21VotingUIProps) {
     setError(null)
 
     try {
+      // 1. Request unsigned versioned transaction from backend
       const result = await votePost.mutateAsync({
         pollId: poll.id,
-        account: publicKey.toString(),
+        account: wallet.publicKey.toString(),
         plus: selectedPlus,
-        minus: selectedMinus,
+        minus: selectedMinus
       })
+      const txBase64 = (result as any).transaction
+      if (!txBase64) throw new Error('No transaction returned')
 
-      if (result.mode === 'demo') {
-        setSuccess(result.message)
-      } else {
-        setSuccess(`Vote submitted successfully! ${selectedPlus.length} positive and ${selectedMinus.length} negative votes recorded.`)
-      }
+      // 2. Deserialize versioned message
+      const msgBuffer = Buffer.from(txBase64, 'base64')
+      const message = VersionedMessage.deserialize(msgBuffer)
 
-      // Clear selections
+      // 3. Build VersionedTransaction
+      const versionedTx = new VersionedTransaction(message)
+
+      // 4. Sign with wallet
+      const signedTx = await wallet.signTransaction(versionedTx)
+
+      // 5. Send and confirm
+      const txid = await connection.sendRawTransaction(signedTx.serialize())
+      await connection.confirmTransaction(txid, 'confirmed')
+
+      setSuccess(`Vote sent! Signature: ${txid}`)
       setSelectedPlus([])
       setSelectedMinus([])
-
-      // Refresh poll data
       refetch()
     } catch (err: any) {
-      setError(err.message || 'Failed to submit vote')
+      setError(err.message || 'Submission failed')
     } finally {
       setIsSubmitting(false)
     }
@@ -162,7 +157,7 @@ export default function D21VotingUI({ pollId = 1 }: D21VotingUIProps) {
     )
   }
 
-  if (!publicKey) {
+  if (!wallet.publicKey) {
     return (
       <div className="text-center p-8">
         <div className="mb-4 text-xl font-semibold">
