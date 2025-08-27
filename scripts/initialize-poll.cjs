@@ -68,6 +68,21 @@ async function initializePoll(
   console.log(`  + minusVotesAllowed: ${pollAccount.minusVotesAllowed}`);
 }
 
+async function ensurePollExists(program, wallet, pollId, description, winners, startTime, endTime) {
+  const buf = Buffer.alloc(4);
+  buf.writeUInt32LE(pollId, 0);
+  const [pollPDA] = PublicKey.findProgramAddressSync(
+    [Buffer.from("poll"), buf],
+    PROGRAM_ID
+  );
+  try {
+    await program.account.poll.fetch(pollPDA);
+    console.log(`ℹ Poll ${pollId} already exists at ${pollPDA.toBase58()}; skipping initialization.`);
+  } catch (_) {
+    await initializePoll(program, wallet, pollId, description, winners, startTime, endTime);
+  }
+}
+
 async function initializeCandidate(program, wallet, pollId, candidateName) {
   const buf = Buffer.alloc(4);
   buf.writeUInt32LE(pollId, 0);
@@ -80,6 +95,15 @@ async function initializeCandidate(program, wallet, pollId, candidateName) {
     [Buffer.from("cand"), buf, Buffer.from(candidateName)],
     PROGRAM_ID
   );
+
+  // Check existence to keep script idempotent and avoid affecting other polls
+  try {
+    await program.account.candidate.fetch(candidatePDA);
+    console.log(`ℹ Candidate "${candidateName}" already exists; skipping.`);
+    return;
+  } catch (_) {
+    // proceed to create
+  }
 
   const txSig = await program.methods
     .initializeCandidate(candidateName, pollId)
@@ -111,23 +135,42 @@ async function main() {
   const provider = new anchor.AnchorProvider(connection, wallet, {});
   const program = new anchor.Program(idl, provider);
 
-  const pollId = 2;
-  const description = "Tech vs Environment Policy Debate";
-  const winners = 3;
+  // Parse pollId from CLI (default 2 to preserve existing behavior)
+  const argPollId = process.argv[2] ? parseInt(process.argv[2], 10) : undefined;
+  const pollId = Number.isInteger(argPollId) ? argPollId : 2;
 
-  await initializePoll(program, wallet, pollId, description, winners, [], []);
+  // Configure per-poll defaults
+  let description;
+  let winners;
+  let candidates;
 
-  const candidates = [
-    "Tech Innovation Focus",
-    "Environmental Protection",
-    "Balanced Approach",
-    "Economic Growth Priority",
-    "Renewable Energy Push",
-  ];
+  if (pollId === 1) {
+    description = "Alice vs Bob — Public Policy Preferences";
+    winners = 5;
+    const topics = ["Education", "Security", "Healthcare", "Defense", "Taxes"];
+    const alice = topics.map((t) => `Alice - ${t}`);
+    const bob = topics.map((t) => `Bob - ${t}`);
+    candidates = [...alice, ...bob];
+  } else {
+    // existing sample for poll 2 (unchanged)
+    description = "Tech vs Environment Policy Debate";
+    winners = 3;
+    candidates = [
+      "Tech Innovation Focus",
+      "Environmental Protection",
+      "Balanced Approach",
+      "Economic Growth Priority",
+      "Renewable Energy Push",
+    ];
+  }
 
+  // Create poll only if missing (so we don't overwrite existing state)
+  await ensurePollExists(program, wallet, pollId, description, winners, [], []);
+
+  // Add candidates idempotently
   for (const name of candidates) {
     await initializeCandidate(program, wallet, pollId, name);
-    await new Promise((r) => setTimeout(r, 1000));
+    await new Promise((r) => setTimeout(r, 500));
   }
 
   console.log("🎉 All done!");

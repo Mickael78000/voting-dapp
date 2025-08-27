@@ -11,7 +11,7 @@ export default function VotingdappFeature() {
   const [selectedPollId, setSelectedPollId] = useState<number>(1)
 
   return (
-    <div>
+    <div className="h-full flex flex-col" style={{ backgroundColor: '#9fbbc9' }}>
       <AppHero
         title="D21 Voting System"
         subtitle="Participate in democratic voting using the D21 method on the Solana blockchain"
@@ -65,8 +65,8 @@ export default function VotingdappFeature() {
                   onChange={(e) => setSelectedPollId(Number(e.target.value))}
                   className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                 >
-                  <option value={1}>Poll 1 - Demo (Alice vs Bob Policy)</option>
-                  <option value={2}>Poll 2</option>
+                  <option value={1}>Poll 1 - Alice vs Bob Policy</option>
+                  <option value={2}>Poll 2 - Convictions</option>
                   <option value={3}>Poll 3</option>
                   <option value={4}>Poll 4</option>
                   <option value={5}>Poll 5</option>
@@ -100,9 +100,6 @@ export default function VotingdappFeature() {
                   <p className="text-sm text-gray-600 font-mono break-all">
                     {publicKey.toString()}
                   </p>
-                  <div className="mt-2">
-                    <ClientOnlyWalletButton />
-                  </div>
                 </div>
                 
                 <div>
